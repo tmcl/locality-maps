@@ -1,0 +1,12 @@
+compile() {
+	stack build && (rm -rf out; mkdir -p out; stack exec localities $1 $2; for i in $(ls out); read-the-file $i)
+}
+
+read-the-file() {
+	pdf=$(echo $1 | sed -e 's/eps$/pdf/')
+	pdfcrop=$(echo $1 | sed -e 's/\.eps$/-crop.pdf/')
+	epstopdf $1 && pdfcrop $pdf && rox $pdfcrop
+	echo $1
+	echo $pdf
+	echo $pdfcrop
+}
