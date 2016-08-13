@@ -2,32 +2,33 @@
 module Main
 where
 
-import Turtle
-import System.Environment -- to be used later
+-- import Turtle
+import System.Environment
+import System.Process
 import Data.Csv
-import Data.Bifunctor
 import Data.Maybe
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Text as T
 import qualified Data.Set as S
 
+import qualified Data.Conduit.Shapefile as Sh
+
 import Geometry.Shapefile.MergeShpDbf
-import Geometry.Shapefile.ReadShp
 import Geometry.Shapefile.Types
 
 import Map
-import Municipality
+import Municipality hiding (fullname)
 import Victoria
 import SouthAustralia
 import Queensland
 import Shapefile2
 
-import qualified Filesystem.Path.CurrentOS as FP
+import Control.Monad
 
 tshow :: Show z => z -> T.Text
 tshow = T.pack . show
 
-j :: Text -> Text
+j :: T.Text -> T.Text
 j = id
 
 safeHead :: [a] -> Maybe a
@@ -36,27 +37,47 @@ safeHead (a:_) = Just a
 
 main :: IO ()
 main = do
-   mapMunicipality QldBrisbane
    args <- getArgs
    print args
    let state = (read . head) args :: State
-   let municipality = (head . tail) args
-   it state municipality
+   print state
+   case state of
+     Vic -> mapM_ (return . it . MuniVic) allVictorian
+     Qld -> mapM_ (it . MuniQld) allQueensland
 
-it :: State -> String -> IO ()
-it state municipality = do
+
+doVictorian = do
+   let municipalities = map MuniVic allVictorian
+   mapM it municipalities
+
+getLocalitiesByMunicipality :: MunicipalityInState -> IO (S.Set T.Text)
+getLocalitiesByMunicipality muni = do
    vic' <- getVictorianLocalities
    let vic = getRightOrElse mzero vic'
    sa <- getSouthAustralianLocalities "/home/cassowary/Projects/map/source-data/sa/Gazetteer_shp/GazetteerSites.dbf"
    qld <- getQueenslandLocalities "/home/cassowary/Projects/map/source-data/qld/QSC_Extracted_Data_20160801_222211270000-15668/Place_names_gazetteer.shp"
-   let muni = readByState state municipality
-   mapMunicipality' muni
-   let localities = filterLocalities' muni (Localities vic sa qld)
-   print localities
-   mapM_ (mapLocality' muni) localities
 
+   --let muni = readByState state municipality
+   return $ filterLocalities' muni (Localities vic sa qld)
+
+--it :: State -> String -> IO ()
+it muni = do
+   localities <- getLocalitiesByMunicipality muni
+   case S.size localities of
+      0 -> error . show $ muni
+      _ -> print localities
+   maybeMapMatters' muni localities
+
+getRightOrElse :: a -> Either b a -> a
 getRightOrElse a (Left _) = a
 getRightOrElse _ (Right a) = a
+
+colorMajorUrban :: Pen
+colorMajorUrban = Solid (Color 100 100 100)
+colorOtherUrban :: Pen
+colorOtherUrban = Solid (Color 125 125 125)
+colorBoundedLocality :: Pen
+colorBoundedLocality = Solid (Color 150 150 150)
 
 colorTheLocality :: Pen
 colorTheLocality = Solid (Color 100 0 0)
@@ -70,34 +91,63 @@ colorAllMunicipalities = Outline (Points 1.0) (Color 150 150 150)
 colorTheMunicipality :: Pen
 colorTheMunicipality = Solid (Color 254 254 233)
 
-mapMunicipality' (MuniVic m) = mapMunicipality m
-mapMunicipality' (MuniQld m) = mapMunicipality m
-mapMunicipality' (MuniSA  m) = mapMunicipality m
+maybeMapMatters' :: Foldable f => MunicipalityInState -> f T.Text -> IO ()
+maybeMapMatters' (MuniVic m) = maybeMapMatters m
+maybeMapMatters' (MuniQld m) = maybeMapMatters m
+maybeMapMatters' (MuniSA  m) = maybeMapMatters m
 
-mapLocality' (MuniVic m) = mapLocality m
-mapLocality' (MuniQld m) = mapLocality m
-mapLocality' (MuniSA  m) = mapLocality m
+isLocalityByName :: T.Text -> (T.Text, String) -> Bool
+isLocalityByName loc (field, locality)
+    = "_LOCA_2" `T.isSuffixOf` field && (T.strip . T.toUpper $ (T.takeWhile (\c -> c /= '(') loc)) == (T.strip . T.pack $ locality)
 
-mapMunicipality :: Municipality m => m -> IO ()
-mapMunicipality = mapMunicipalityAndLocalities (\_ -> []) (FP.fromText $ T.pack $ "out/" ++ show lga ++ ".eps")
+allRecsInShapes :: [ShpData] -> [ShpRec]
+allRecsInShapes = concatMap shpRecs
 
-mapLocality :: Municipality m => m -> T.Text -> IO ()
-mapLocality m locality = mapMunicipalityAndLocalities pickDrawLocality m
-   where
-      pickDrawLocality recs = [(colorTheLocality, (concatMap getPoints) $ concatMap (shpRecByField (isLocalityByName locality)) recs)]
+maybeMapMatters :: (Municipality m, Foldable f) => m -> f T.Text -> IO ()
+maybeMapMatters municipality localities = do
+    stateMunicipalityShapes <- readShpWithDbf (municipalityShapePath municipality)
+    let theMunicipalityRecs = shpRecByField (isMunicipalityByName municipality) stateMunicipalityShapes
+    let bboxes = catMaybes [catBoundingBoxes $ map Shapefile2.boundingBox theMunicipalityRecs]
 
-isLocalityByName loc (field, locality) = "_LOCA_2" `T.isSuffixOf` field && loc == (T.strip . T.pack $ locality)
+    mapM_ (\bbox -> mapMatters bbox municipality theMunicipalityRecs localities) (bboxes)
 
-mapMunicipalityAndLocalities :: Municipality m => ([ShpData] -> [(Pen, [[Point]])]) -> FP.FilePath -> m -> IO ()
-mapMunicipalityAndLocalities extras name lga = do
-    shpdata <- readShpWithDbf (municipalityShapePath lga)
-    let recs = shpRecByField (isMunicipalityByName lga) shpdata
-    let bbox = catBoundingBoxes $ map Shapefile2.boundingBox recs
-    let alls = shpRecs shpdata
-    localities <- allLocalities
+outputEPSStreamToPDF :: Prelude.FilePath -> T.Text -> IO ()
+outputEPSStreamToPDF outfile stream = do
+   _ <- inproc "epstopdf" ["-f", T.pack $ "-o=" ++ outfile] stream
+   return ()
 
-    let polygons = [ (colorTheMunicipality, (concat $ map getPoints recs)), (colorAllMunicipalities, (concat $ map getPoints alls)), (colorAllLocalities, (concat $ map getPoints (concatMap shpRecs localities))) ] ++ extras localities
-    mapM_ (\box -> output name (drawMap (withDefaultSettings box) polygons)) (catMaybes [bbox])
+mapLocality :: Municipality m => m -> T.Text -> Settings -> [ShpData] -> T.Text -> IO ()
+mapLocality m base settings allLocalityShapes locality = do
+    let theLocalityRecs = concatMap (shpRecByField (isLocalityByName locality)) allLocalityShapes
+    localityMap <- mapPoints settings (colorTheLocality, 60, (concatMap getPoints theLocalityRecs))
+    mapClosing <- closeMap settings
+    outputEPSStreamToPDF ("out/" ++ T.unpack locality ++ " - " ++ show m ++ ".pdf") (T.concat [base, localityMap, mapClosing])
+
+
+mapMatters :: (Municipality m, Foldable f) => RecBBox -> m -> [ShpRec] -> f T.Text -> IO ()
+mapMatters bbox municipality theMunicipalityRecs localities = do
+    allLocalityShapes <- allLocalities
+    let settings = withDefaultSettings bbox
+    base <- makeBaseMap settings allLocalityShapes theMunicipalityRecs 
+    mapClosing <- closeMap settings
+    outputEPSStreamToPDF ("out/" ++ show municipality ++ ".pdf") (T.concat [base, mapClosing])
+    mapM_ (mapLocality municipality base settings allLocalityShapes) localities
+
+makeBaseMap :: Settings -> [ShpData] -> [ShpRec] -> IO T.Text
+makeBaseMap settings allLocalityShapes theMunicipalityRecs = do
+    allMunicipalityShapes <- allMunicipalities
+    let allMunicipalityRecs = allRecsInShapes allMunicipalityShapes
+    (majorUrban, otherUrban, boundedLocality) <- fmap pickUrbans allUrbans
+    let localityPoints = concatMap getPoints (concatMap shpRecs allLocalityShapes)
+    fmap T.concat $ mapM id [ initialiseMap settings ,
+               mapCoast settings ,
+               mapPoints settings (colorTheMunicipality, 0, (concatMap getPoints theMunicipalityRecs)) ,
+               mapPoints settings (colorAllMunicipalities, 0, (concatMap getPoints allMunicipalityRecs)) ,
+               mapPoints settings (colorAllLocalities, 0, localityPoints) ,
+               mapPoints settings (colorMajorUrban, 60, (concatMap getPoints majorUrban)) ,
+               mapPoints settings (colorOtherUrban, 60, (concatMap getPoints otherUrban)) ,
+               mapPoints settings (colorBoundedLocality, 60, (concatMap getPoints boundedLocality)) ]
+    -- return $ T.concat thing
 
 municipalityShapePath :: Municipality m => m -> Prelude.FilePath
 municipalityShapePath = stateShapePath . municipalityState
@@ -105,10 +155,26 @@ municipalityShapePath = stateShapePath . municipalityState
 stateShapePath :: State -> Prelude.FilePath
 stateShapePath Qld = "/home/cassowary/Projects/map/source-data/cth/QLDLGAPOLYGON/QLD_LGA_POLYGON_shp.shp"
 stateShapePath Vic = "/home/cassowary/Projects/map/source-data/cth/VICLGAPOLYGON/VIC_LGA_POLYGON_shp.shp"
+stateShapePath SA  = "/home/cassowary/Projects/map/source-data/cth/SALGAPOLYGON/SA_LGA_POLYGON_shp.shp"
 
+allUrbans :: IO ShpData
+allUrbans = readShpWithDbf "/home/cassowary/Projects/map/source-data/abs/1270055004_sos_2011_aust_shape/SOS_2011_AUST.shp"
+pickUrbans :: ShpData -> ([ShpRec], [ShpRec], [ShpRec])
+pickUrbans = pickRecords (("SOS_NAME11", "Major Urban"), ("SOS_NAME11", "Other Urban"), ("SOS_NAME11", "Bounded Locality"))
+
+
+allMunicipalities :: IO [ShpData]
+allMunicipalities = do
+    nsw <- readShpWithDbf "/home/cassowary/Projects/map/source-data/cth/NSWLGAPOLYGON/NSW_LGA_POLYGON_shp.shp"
+    vic <- readShpWithDbf "/home/cassowary/Projects/map/source-data/cth/VICLGAPOLYGON/VIC_LGA_POLYGON_shp.shp"
+    qld <- readShpWithDbf "/home/cassowary/Projects/map/source-data/cth/QLDLGAPOLYGON/QLD_LGA_POLYGON_shp.shp"
+    return $ [nsw, vic, qld]
+allLocalities :: IO [ShpData]
 allLocalities = do
+    nsw <- readShpWithDbf "/home/cassowary/Projects/map/source-data/cth/NSWLOCALITYPOLYGON/NSW_LOCALITY_POLYGON_shp.shp"
+    vic <- readShpWithDbf "/home/cassowary/Projects/map/source-data/cth/VICLOCALITYPOLYGON/VIC_LOCALITY_POLYGON_shp.shp"
     qld <- readShpWithDbf "/home/cassowary/Projects/map/source-data/cth/QLDLOCALITYPOLYGON/QLD_LOCALITY_POLYGON_shp.shp"
-    return $ [qld]
+    return $ [nsw, vic, qld]
 
 readByState :: State -> String -> MunicipalityInState
 readByState Vic m = MuniVic $ read ("Vic" ++ m)
@@ -119,6 +185,7 @@ data MunicipalityInState =
     MuniVic VictorianMunicipality
     | MuniSA SouthAustralianMunicipality
     | MuniQld QueenslandMunicipality
+   deriving (Show)
 
 getVictorianLocalities :: IO (Either String VictorianLocalities)
 getVictorianLocalities = fmap victorianLocalities readVictorianDb
@@ -131,6 +198,7 @@ readVictorianDb = BS.readFile "/home/cassowary/Projects/map/source-data/vic/file
 -- pooy f (MuniQld m) = f m
 -- pooy f (MuniSA  m) = f m
 
+filterLocalities' :: MunicipalityInState -> Localities -> S.Set T.Text
 filterLocalities' (MuniVic m) = filterLocalities m
 filterLocalities' (MuniQld m) = filterLocalities m
 filterLocalities' (MuniSA  m) = filterLocalities m

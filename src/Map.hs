@@ -3,7 +3,7 @@ where
 
 import Geometry.Shapefile.Types
 import qualified Shapefile2 as S
-import Turtle
+import System.Process
 import qualified Data.Text as T
 
 class GMTOption a where
@@ -69,20 +69,26 @@ polygonToPstPoints pts = T.unlines $ map pointToPstPoint pts
 polygonsToPstPoints :: [[S.Point]] -> T.Text
 polygonsToPstPoints pts = T.intercalate ">\n" (map polygonToPstPoints pts)
 
-drawMap :: Settings -> [(Pen, [[S.Point]])] -> Shell Text
-drawMap settings points =
-    initialiseMap settings
-        <|> (foldr (<|>) empty (map (mapPoints settings) points))
-        <|> closeMap settings
+--drawMap :: Settings -> [(Pen, Int, [[S.Point]])] -> IO T.Text
+--drawMap settings points = do
+    --initialiseMap settings <|> mapCoast settings
+        -- <|> (foldr (<|>) empty (map (mapPoints settings) points))
+        -- <|> closeMap settings
 
-closeMap :: Settings -> Shell Text
-closeMap settings
-    = inproc "gmt" ["psxy", "-A", "-T", setting projection, setting boundingBox, "-O", setting orientation] empty
+initialiseMap :: Settings -> IO T.Text
+initialiseMap settings
+    = inproc "gmt" ["psxy", "-A", "-T", setting projection, setting boundingBox, "-K", setting orientation] T.empty
     where
         setting getter = tshow . getter $ settings
 
-mapPoints :: Settings -> (Pen, [[S.Point]]) -> Shell Text
-mapPoints settings (pen, points) = inproc "gmt" params (return $ polygonsToPstPoints points)
+closeMap :: Settings -> IO T.Text
+closeMap settings
+    = inproc "gmt" ["psxy", "-A", "-T", setting projection, setting boundingBox, "-O", setting orientation] T.empty
+    where
+        setting getter = tshow . getter $ settings
+
+mapPoints :: Settings -> (Pen, Int, [[S.Point]]) -> IO T.Text
+mapPoints settings (pen, transparency, points) = inproc "gmt" params (polygonsToPstPoints points)
     where
         setting getter = tshow . getter $ settings
         params = [
@@ -92,11 +98,15 @@ mapPoints settings (pen, points) = inproc "gmt" params (return $ polygonsToPstPo
             tshow pen,
             "-K",
             "-O",
-            setting orientation
+            setting orientation,
+            T.pack $ "-t" ++ show transparency
             ]
 
-initialiseMap :: Settings -> Shell Text
-initialiseMap settings = inproc "gmt" [
+inproc :: String -> [T.Text] -> T.Text -> IO T.Text
+inproc a b c = fmap T.pack (readProcess a (fmap T.unpack b) (T.unpack c))
+
+mapCoast :: Settings -> IO T.Text
+mapCoast settings = inproc "gmt" [
     "pscoast",
     setting projection,
     setting boundingBox,
@@ -109,6 +119,6 @@ initialiseMap settings = inproc "gmt" [
     "-X2.2c",
     setting orientation,
     "-K"
-    ] empty
+    ] T.empty
     where
         setting getter = tshow . getter $ settings

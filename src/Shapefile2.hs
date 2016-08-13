@@ -1,7 +1,6 @@
 module Shapefile2
 where
 
-import Geometry.Shapefile.MergeShpDbf
 import Geometry.Shapefile.Types
 import qualified Data.Text as T
 
@@ -10,7 +9,12 @@ type DbfRecordPredicate = (T.Text, String) -> Bool
 type Point = (Double, Double)
 
 catBoundingBoxes :: [Maybe RecBBox] -> Maybe RecBBox
-catBoundingBoxes boxes = foldr bigBoundingBox Nothing boxes
+catBoundingBoxes boxes = fmap embiggenBoundingBox $ foldr bigBoundingBox Nothing boxes
+
+embiggenBoundingBox (RecBBox a b c d) = RecBBox (a-width) (b+width) (c-height) (d+height)
+   where 
+      width = (b-a) / 10
+      height = (d-c) / 10
 
 bigBoundingBox :: Maybe RecBBox -> Maybe RecBBox -> Maybe RecBBox
 bigBoundingBox Nothing a = a
@@ -45,22 +49,58 @@ boundingBox2 (RecPolygon a _ _ _ _) = Just a
 boundingBox2 (RecPolygonM a _ _ _ _ _ _) = Just a
 boundingBox2 (RecPolygonZ a _ _ _ _ _ _ _ _) = Just a
 
+type RecordPickerInput = ((T.Text, T.Text), (T.Text, T.Text), (T.Text, T.Text))
+type RecordPickerOutput = ([ShpRec], [ShpRec], [ShpRec])
+
+pickRecords :: RecordPickerInput -> ShpData -> RecordPickerOutput
+pickRecords conditions shpData = pickRecords2 conditions (dbfFieldDescs shpData) (shpRecs shpData)
+
+pickRecords2 :: RecordPickerInput -> Maybe [DbfFieldDesc] -> [ShpRec] -> RecordPickerOutput
+pickRecords2 _ Nothing _ = ([], [], [])
+pickRecords2 conditions (Just dbf) recs = foldr (matchToCond conditions (dbfFieldNames dbf)) ([], [], []) recs
+
+matchToCond :: RecordPickerInput -> [T.Text] -> ShpRec -> RecordPickerOutput -> RecordPickerOutput
+matchToCond cond fields rec acc = matchToDbfCond cond fields (shpRecLabel rec) acc rec
+
+matchToDbfCond :: RecordPickerInput -> [T.Text] -> Maybe [DbfRecord] -> RecordPickerOutput -> ShpRec -> RecordPickerOutput
+matchToDbfCond _ _ Nothing acc _ = acc
+matchToDbfCond conds fields (Just recs) accs candidate = matchToDbfCondZipped conds (zip fields recs) accs candidate
+
+matchToDbfCondZipped :: RecordPickerInput -> [(T.Text, DbfRecord)] -> RecordPickerOutput -> ShpRec -> RecordPickerOutput
+matchToDbfCondZipped (cond1, cond2, cond3) fields (acc1, acc2, acc3) candidate = (extra1 ++ acc1, extra2 ++ acc2, extra3 ++ acc3)
+    where
+        matches (conditionField, conditionValue) (candidateName, candidateValue) = conditionField == candidateName && conditionValue == (T.strip . T.pack . readDbfRecord) candidateValue
+        match condition = any (matches condition)
+        extra1
+            | match cond1 fields = [candidate]
+            | otherwise = []
+        extra2
+            | match cond2 fields = [candidate]
+            | otherwise = []
+        extra3
+            | match cond3 fields = [candidate]
+            | otherwise = []
+
+
+dbfFieldNames :: [DbfFieldDesc] -> [T.Text]
+dbfFieldNames = map (T.strip . T.pack . fieldName)
+
 shpRecByField :: DbfRecordPredicate -> ShpData -> [ShpRec]
 shpRecByField predicate shpData = shpRecByField2 predicate (dbfFieldDescs shpData) (shpRecs shpData)
 
 shpRecByField2 :: DbfRecordPredicate -> Maybe [DbfFieldDesc] -> [ShpRec] -> [ShpRec]
 shpRecByField2 _ Nothing _ = []
-shpRecByField2 pred (Just descs) recs = shpRecByField3 pred descs recs
+shpRecByField2 predicate (Just descs) recs = shpRecByField3 predicate descs recs
 
 shpRecByField3 :: DbfRecordPredicate -> [DbfFieldDesc] -> [ShpRec] -> [ShpRec]
-shpRecByField3 pred descs recs = filter (shpRecMatches pred descs) recs
+shpRecByField3 predicate descs recs = filter (shpRecMatches predicate descs) recs
 
 shpRecMatches :: DbfRecordPredicate -> [DbfFieldDesc] -> ShpRec -> Bool
-shpRecMatches pred descs rec = dbfFieldsMatch pred descs (shpRecLabel rec)
+shpRecMatches predicate descs rec = dbfFieldsMatch predicate descs (shpRecLabel rec)
 
 dbfFieldsMatch :: DbfRecordPredicate -> [DbfFieldDesc] -> Maybe [DbfRecord] -> Bool
 dbfFieldsMatch _ _ Nothing = False
-dbfFieldsMatch pred descs (Just recs) = dbfFieldsMatch2 pred (map (T.strip . T.pack . fieldName) descs) recs
+dbfFieldsMatch predicate descs (Just recs) = dbfFieldsMatch2 predicate (dbfFieldNames descs) recs
 
 dbfFieldsMatch2 :: DbfRecordPredicate -> [T.Text] -> [DbfRecord] -> Bool
 dbfFieldsMatch2 predicate descs recs = dbfFieldsMatch3 predicate (zip descs recs)

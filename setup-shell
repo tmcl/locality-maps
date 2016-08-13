@@ -1,5 +1,5 @@
 compile() {
-	stack build && (rm -rf out; mkdir -p out; stack exec localities $1 $2; for i in $(ls out); read-the-file $i)
+	stack build && (rm -rf out; mkdir -p out; stack exec localities $1 $2)
 }
 
 read-the-file() {

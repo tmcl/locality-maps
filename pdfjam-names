@@ -1,0 +1,22 @@
+#!/bin/zsh
+
+out=$1
+shift
+
+echo $out
+
+cat > $out << EOF
+\documentclass[a0paper,]{article}
+\usepackage{graphicx}
+\usepackage[space]{grffile}
+\pagenumbering{gobble}
+\begin{document}
+EOF
+for i in "$@"; do
+	echo $i
+	echo $i'\\nopagebreak\n' >> $out
+	echo '\includegraphics{'$i"}" >> $out
+	echo '\pagebreak' >> $out
+	echo "\n" >> $out
+done
+echo '\\end{document}' >> $out
