@@ -48,42 +48,35 @@ cabal-version:       >=1.10
 
 executable localities
   -- .hs or .lhs file containing the Main module.
-  main-is:             Data/Conduit/Main.hs
+  main-is:             Main.hs
 
   
   -- Modules included in this executable, other than Main.
   -- other-modules:      Logic, Shapefile, Municipality, Victoria, SouthAustralia, Queensland, Shapefile2, Map
   
-  ghc-options:       -Wall
+  ghc-options:       -Wall -threaded
   default-extensions: OverloadedStrings
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    
   
   -- Other library packages from which modules are imported.
   build-depends:       base >=4.8 && <4.9,
-                       turtle,
-                       cassava,
-                       text,
-                       bytestring,
-                       vector,
-                       containers,
-                       shapefile,
-                       unix,
-                       filepath,
-                       readshp,
-                       system-filepath,
-                       process,
-                       attoparsec,
-                       conduit,
-                       conduit-combinators,
+                       shapefile-parser,
+                       conduit-combinators ==1.0.*,
+                       conduit-extra ==1.1.*,
+                       conduit ==1.2.*,
+                       chunked-data ==0.2.*,
+                       process ==1.2.*,
+                       text ==1.2.*,
+                       bytestring ==0.10.*,
+                       binary ==0.7.*,
+                       blaze-builder ==0.4.*,
+                       transformers ==0.4.*,
+                       resourcet ==1.1.*,
                        classy-prelude,
-                       time,
-                       conduit-extra,
-                       transformers,
-                       resourcet,
-                       pretty-show,
-                       attoparsec-binary
-                       -- clipper
+                       filepath ==1.4.*,
+                       vector ==0.11.*,
+                       readshp
 
   -- Directories containing source files.
   hs-source-dirs:      src

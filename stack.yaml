@@ -37,15 +37,15 @@ resolver: lts-6.10
 # will not be run. This is useful for tweaking upstream packages.
 packages:
 - '.'
+- '../shapefile-parser'
+- '../shapefile-parser/decoder-conduit'
+- '../shapefile-parser/readshp-0.1.0.0'
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
-extra-deps: [system-filepath-0.4.13.4, shapefile-0.0.0.1, dbf-0.0.0.2, rwlock-0.0.0.3, monad-loops-stm-0.4, clipper-0.0.1, readshp-0.1.0.0, process-1.2.3.0, attoparsec-binary-0.2]
+extra-deps: [system-filepath-0.4.13.4, shapefile-0.0.0.1, dbf-0.0.0.2, rwlock-0.0.0.3, monad-loops-stm-0.4, process-1.2.3.0, attoparsec-binary-0.2]
 
 # Override default flag values for local packages and extra-deps
-flags: 
-   clipper:
-      with-gcc: true
-         
+flags: {}
 
 # Extra package databases containing global packages
 extra-package-dbs: []
