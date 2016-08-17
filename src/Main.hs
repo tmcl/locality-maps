@@ -81,6 +81,16 @@ municipalityFilePaths fps = [ nswMunicipalities fps,
                               ntMunicipalities fps
                             ]
 
+localityFilePaths :: FilePaths -> [FilePath]
+localityFilePaths fps = [ nswLocalities fps,
+                          vicLocalities  fps,
+                          qldLocalities  fps,
+                          waLocalities fps,
+                          saLocalities fps,
+                          tasLocalities  fps,
+                          ntLocalities fps
+                        ]
+
 
 toDbf :: FilePath -> FilePath
 toDbf = (`replaceExtension` "dbf")
@@ -172,6 +182,9 @@ withMunicipalityFile paths muni = withShpFile (municipalityFilePathByMunicipalit
 withMunicipalityFiles :: FilePaths -> (Handle -> Handle -> IO a) -> IO [a]
 withMunicipalityFiles paths cb = mapM (`withShpFile` cb) (municipalityFilePaths paths)
 
+withLocalityFiles :: FilePaths -> (Handle -> Handle -> IO a) -> IO [a]
+withLocalityFiles paths cb = mapM (`withShpFile` cb) (localityFilePaths paths)
+
 matchUrbanAreaType :: Text -> Shape -> Bool
 matchUrbanAreaType = matchTextDbfField (\t -> t == "SOS_NAME11")
 
@@ -201,6 +214,13 @@ mapMunicipalities fps settings pen = concat <$> (withMunicipalityFiles fps $ \sh
     =$= mapPoints3 settings pen 0
    $$ CC.sinkList)
 
+mapLocalities :: FilePaths -> Settings -> Pen -> IO [ByteString]
+mapLocalities fps settings pen = concat <$> (withLocalityFiles fps $ \shp dbf ->
+  shapesFromDbfShpSource shp dbf
+   =$= eachPolygon
+    =$= mapPoints3 settings pen 0
+   $$ CC.sinkList)
+
 mapMunicipality :: FilePaths -> Municipality -> Settings -> Pen -> IO [ByteString]
 mapMunicipality fps muni settings pen = withMunicipalityFile fps muni $ \shp dbf ->
   shapesFromDbfShpSource shp dbf
@@ -218,9 +238,10 @@ mapMunicipalityLocally filePaths municipality out = do
   urbanPoints <- mapUrbanAreas filePaths settings
   municipalitiesPoints <- mapMunicipalities filePaths settings colorAllMunicipalities
   municipalityPoints <- mapMunicipality filePaths municipality settings colorTheMunicipality
+  localitiesPoints <- mapLocalities filePaths settings colorAllLocalities
   finalisation <- closeMap settings
   withFile (out ++ "/" ++ T.unpack (municipalityName municipality) ++ " (" ++ show (municipalityState municipality) ++ ").eps") WriteMode $ \dst ->  -- TODO perhaps not a conduit?
-    CC.yieldMany ([initialisation, coastMap, title] ++ urbanPoints ++ municipalitiesPoints ++ municipalityPoints ++ [finalisation])
+    CC.yieldMany ([initialisation, coastMap, title] ++ urbanPoints ++ municipalitiesPoints ++ municipalityPoints ++ localitiesPoints ++ [finalisation])
       $$ CC.sinkHandle dst
 
 
