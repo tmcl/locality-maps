@@ -7,16 +7,12 @@ import Geometry.Shapefile.Types
 import qualified Shapefile2 as S
 import System.Process
 import qualified Data.Text as T
+import Data.Text.Encoding
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import Data.ByteString (ByteString)
 import qualified Data.Conduit.Combinators as CC
-import qualified Data.Conduit.Process as CP
 import Data.Conduit
---import Data.Builder
---import Data.Binary.Builder
-import Blaze.ByteString.Builder
---import ClassyPrelude (traceM, trace, traceId)
 import Control.Monad.IO.Class
 import qualified Data.Vector as V
 
@@ -68,8 +64,8 @@ data Pen
     | Water Color
     | Outline Width Color
 instance GMTOption Pen where
-    tshow (Solid color) = concat ["-G", colorToText color]
-    tshow (Water color) = concat ["-S", colorToText color]
+    tshow (Solid color) = "-G" ++ colorToText color
+    tshow (Water color) = "-S" ++ colorToText color
     tshow (Outline (Points pt) color) = concat ["-W", show pt, "p,", colorToText color]
 
 colorToText :: Color -> String
@@ -106,6 +102,12 @@ initialiseMap settings
     where
         setting getter = tshow . getter $ settings
 
+mapTitle :: Settings -> T.Text -> IO ByteString
+mapTitle settings title
+    = inproc "gmt" ["pstext", setting projection, setting boundingBox, "-F+cTL", "-O", "-K", setting orientation] (encodeUtf8 title)
+    where
+        setting getter = tshow . getter $ settings
+
 closeMap :: Settings -> IO ByteString
 closeMap settings
     = inproc "gmt" ["psxy", "-A", "-T", setting projection, setting boundingBox, "-O", setting orientation] BS.empty
@@ -129,8 +131,8 @@ mapPointsParams settings (pen, transparency) = params
 
 mapPoints3 :: Settings -> Pen -> Int -> Conduit [[S.Point]] IO ByteString
 mapPoints3 settings pen transparency = CC.conduitVector 200 =$= awaitForever go
-	where
-		go points = (liftIO $ mapPoints1 settings (pen, transparency, concat $ V.toList points)) >>= yield
+   where
+      go points = liftIO (mapPoints1 settings (pen, transparency, concat $ V.toList points)) >>= yield
 --mapPoints4 settings pen transparency = do
    --blah <- await
    --traceM (show blah)
@@ -151,7 +153,7 @@ mapPoints3 settings pen transparency = CC.conduitVector 200 =$= awaitForever go
 --     traceM $ show $ toByteString c
 --     return $ toByteString builder
 
--- mapPoints1 :: Settings -> (Pen, Int, [[S.Point]]) -> IO ByteString
+mapPoints1 :: Settings -> (Pen, Int, [[S.Point]]) -> IO ByteString
 mapPoints1 settings (pen, transparency, points) = inproc "gmt" (mapPointsParams settings (pen, transparency)) (polygonsToPstPoints points)
 
 inproc :: String -> [String] -> ByteString -> IO ByteString
