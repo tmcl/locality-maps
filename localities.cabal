@@ -45,6 +45,44 @@ build-type:          Simple
 -- Constraint on the version of Cabal needed to build this package.
 cabal-version:       >=1.10
 
+executable check-localities
+  -- .hs or .lhs file containing the Main module.
+  main-is:             OverlappingMunicipalities.hs
+
+  
+  -- Modules included in this executable, other than Main.
+  ghc-options:       -Wall -threaded
+  default-extensions: OverloadedStrings
+  -- LANGUAGE extensions used by modules in this package.
+  -- other-extensions:    
+  
+  -- Other library packages from which modules are imported.
+  build-depends:       base >=4.8 && <4.9,
+                       shapefile-parser,
+                       conduit-combinators ==1.0.*,
+                       conduit-extra ==1.1.*,
+                       conduit ==1.2.*,
+                       chunked-data ==0.2.*,
+                       process ==1.2.*,
+                       text ==1.2.*,
+                       bytestring ==0.10.*,
+                       binary ==0.7.*,
+                       blaze-builder ==0.4.*,
+                       transformers ==0.4.*,
+                       resourcet ==1.1.*,
+                       classy-prelude,
+                       mmorph,
+                       filepath ==1.4.*,
+                       vector ==0.11.*,
+                       clipper,
+                       readshp
+
+  -- Directories containing source files.
+  hs-source-dirs:      src
+  
+  -- Base language which the package is written in.
+  default-language:    Haskell2010
+  
 
 executable localities
   -- .hs or .lhs file containing the Main module.
@@ -74,8 +112,10 @@ executable localities
                        transformers ==0.4.*,
                        resourcet ==1.1.*,
                        classy-prelude,
+                       mmorph,
                        filepath ==1.4.*,
                        vector ==0.11.*,
+                       clipper,
                        readshp
 
   -- Directories containing source files.
