@@ -1,4 +1,5 @@
 {-# LANGUAGE Rank2Types #-}
+
 module Main (main)
 where
 
@@ -41,7 +42,7 @@ mapSomeMunicipality fps dest muni = do
 
 mapFile :: [FilePath] -> IO ()
 mapFile (source:dest:_) = do
-  --mapMunicipalityInState (withFiles source) muni dest
+  mapMunicipalityInState (withFiles source) muni dest
   mapMunicipalityLocally (withFiles source) muni dest
     where
       muni = Municipality {municipalityState = Qld, municipalityName = "MORNINGTON", municipalityLongName = "MORNINGTON SHIRE"}
@@ -182,12 +183,18 @@ municipalityFilePathByMunicipality :: FilePaths -> Municipality -> FilePath
 municipalityFilePathByMunicipality fps muni = municipalityFilePathByState (municipalityState muni) fps
 
 settingsFromMunicipalityInState :: FilePaths -> Municipality -> IO (Maybe Settings)
-settingsFromMunicipalityInState paths municipality = withMunicipalityFile paths municipality $ \shp dbf ->
-  (fmap settingsFromShapefileStream) <$> (shapesFromDbfShpSource Nothing shp dbf $$ CL.head)
+settingsFromMunicipalityInState paths municipality = 
+  withMunicipalityFile paths municipality $ \shp dbf ->
+  fmap settingsFromShapefileStream <$> (shapesFromDbfShpSource Nothing shp dbf $$ CL.head)
 
 settingsFromMunicipality :: FilePaths -> Municipality -> IO (Maybe Settings)
-settingsFromMunicipality paths municipality = withMunicipalityFile paths municipality $ \shp dbf ->
-  (settingsFromRecBBox <$>) <$> (shapesFromDbfShpSource Nothing shp dbf =$= CC.filter (matchMunicipality municipality) =$= CC.map (\(_, a, _) -> shpRecBBox a) $$ CL.fold bigBoundingBox Nothing)
+settingsFromMunicipality paths municipality = 
+  withMunicipalityFile paths municipality $ \shp dbf ->
+  fmap settingsFromRecBBox <$> 
+    (shapesFromDbfShpSource Nothing shp dbf 
+     =$= CC.filter (matchMunicipality municipality) 
+     =$= CC.map (\(_, a, _) -> shpRecBBox a) 
+     $$ CL.fold bigBoundingBox Nothing)
 
 withShpFile :: FilePath -> (Handle -> Handle -> IO a) -> IO a
 withShpFile filePath cb =
@@ -205,7 +212,7 @@ withLocalityFiles :: FilePaths -> (Handle -> Handle -> IO a) -> IO [a]
 withLocalityFiles paths cb = mapM (`withShpFile` cb) (localityFilePaths paths)
 
 matchUrbanAreaType :: Text -> Shape -> Bool
-matchUrbanAreaType = matchTextDbfField (\t -> t == "SOS_NAME11")
+matchUrbanAreaType = matchTextDbfField (== "SOS_NAME11")
 
 mapUrbanAreas :: FilePaths -> Settings -> IO [ByteString]
 mapUrbanAreas paths settings = withShpFile (urbanAreas paths) $ \shp dbf -> do
