@@ -30,33 +30,15 @@ mapState (state:source:dest:_) = mapSomeState (read state) (withFiles source) de
 mapState _ = error "I expect three arguments: a state, the source folder and the dest folder"
 
 mapSomeState ∷ State → FilePaths → FilePath → IO ()
-mapSomeState state fps dest = do
-  munis <- municipalitiesByFilePath (municipalityFilePathByState state fps) state
-  mapM_ (mapSomeMunicipality fps dest) munis
-
-mapSomeMunicipality ∷ FilePaths → FilePath → Municipality → IO ()
-mapSomeMunicipality fps dest muni = do
-  mapMunicipalityInState fps muni dest
-  mapMunicipalityLocally fps muni dest
-
-mapFile ∷ [FilePath] → IO ()
-mapFile (source:dest:_) = do
-  mapMunicipalityInState (withFiles source) muni dest
-  mapMunicipalityLocally (withFiles source) muni dest
-    where
-      muni = Municipality {
-               municipalityState = Qld,
-               municipalityName = "MORNINGTON",
-               municipalityLongName = "MORNINGTON SHIRE"}
-mapFile _ = error "You need to specify the source data folder and the destination filename"
+mapSomeState state fps dest = mapMunicipalitiesInState fps state dest
 
 municipalitiesByFilePath ∷ FilePath → State → IO [Municipality]
 municipalitiesByFilePath fp state = runResourceT $ CB.sourceFile (toDbf fp)
   =$= dbfConduit
   =$= CC.map (\f -> Municipality {
-    municipalityState = state,
-    municipalityName = dbfFieldCharacter $ readLgaColumnName f,
-    municipalityLongName = dbfFieldCharacter $ readLgaColumnLongName f})
+    muniState = state,
+    muniName = dbfFieldCharacter $ readLgaColumnName f,
+    muniLongName = dbfFieldCharacter $ readLgaColumnLongName f})
   $$ CC.sinkList
 
 
@@ -136,9 +118,9 @@ municipalityFilePathByState Tas = tasMunicipalities
 municipalityFilePathByState NT  = ntMunicipalities
 
 data Municipality = Municipality {
-   municipalityState    :: State,
-   municipalityLongName :: Text,
-   municipalityName     :: Text
+   muniState    :: State,
+   muniLongName :: Text,
+   muniName     :: Text
 }
 
 colorMajorUrban ∷ Pen
@@ -182,11 +164,11 @@ bigBoundingBox (Just (RecBBox a1 b1 c1 d1)) (Just (RecBBox a2 b2 c2 d2))
     = Just $ RecBBox (min a1 a2) (max b1 b2) (min c1 c2) (max d1 d2)
 
 municipalityFilePathByMunicipality ∷ FilePaths → Municipality → FilePath
-municipalityFilePathByMunicipality fps muni = municipalityFilePathByState (municipalityState muni) fps
+municipalityFilePathByMunicipality fps muni = municipalityFilePathByState (muniState muni) fps
 
-settingsFromMunicipalityInState ∷ FilePaths → Municipality → IO (Maybe Settings)
-settingsFromMunicipalityInState paths municipality =
-  withMunicipalityFile paths municipality $ \shp dbf ->
+settingsFromState ∷ FilePaths → State → IO (Maybe Settings)
+settingsFromState paths state =
+  withShpFile (municipalityFilePathByState state paths) $ \shp dbf ->
   fmap settingsFromShapefileStream <$> (shapesFromDbfShpSource Nothing shp dbf $$ CL.head)
 
 settingsFromMunicipality ∷ FilePaths → Municipality → IO (Maybe Settings)
@@ -258,35 +240,44 @@ mapMunicipality fps muni settings pen = withMunicipalityFile fps muni $ \shp dbf
    $$ CC.sinkList
 
 mapMunicipalityLocally ∷ FilePaths → Municipality → FilePath → IO ()
-mapMunicipalityLocally filePaths municipality out = do
-  Just settings <- settingsFromMunicipality filePaths municipality
-  initialisation <- initialiseMap settings
-  title <- mapTitle settings (municipalityLongName municipality)
-  coastMap <- mapCoast settings
-  urbanPoints <- mapUrbanAreas filePaths settings
-  municipalitiesPoints <- mapMunicipalities filePaths settings colorAllMunicipalities
-  municipalityPoints <- mapMunicipality filePaths municipality settings colorTheMunicipality
+mapMunicipalityLocally filePaths muni out = do
+  Just settings <- settingsFromMunicipality filePaths muni
+  title <- mapTitle settings (muniLongName muni)
+  baseMap <- makeBaseMap filePaths settings
+  munisPoints <- mapMunicipalities filePaths settings colorAllMunicipalities
+  muniPoints <- mapMunicipality filePaths muni settings colorTheMunicipality
   localitiesPoints <- mapLocalities filePaths settings colorAllLocalities
   finalisation <- closeMap settings
-  withFile (out ++ "/" ++ T.unpack (municipalityName municipality) ++ " (" ++ show (municipalityState municipality) ++ ").eps") WriteMode $ \dst ->  -- TODO perhaps not a conduit?
-    CC.yieldMany ([initialisation, coastMap, title] ++ urbanPoints ++ municipalitiesPoints ++ municipalityPoints ++ localitiesPoints ++ [finalisation])
-      $$ CC.sinkHandle dst
+  writeMap
+    (baseMap ++ munisPoints ++ muniPoints ++ localitiesPoints ++ [title, finalisation])
+    (out ++ "/" ++ T.unpack (muniName muni) ++ " (" ++ show (muniState muni) ++ ").eps")
 
-
-mapMunicipalityInState ∷ FilePaths → Municipality → FilePath → IO ()
-mapMunicipalityInState filePaths municipality out = do
-  Just settings <- settingsFromMunicipalityInState filePaths municipality
-  initialisation <- initialiseMap settings
-  title <- mapTitle settings (municipalityLongName municipality)
-  coastMap <- mapCoast settings
-  urbanPoints <- mapUrbanAreas filePaths settings
-  municipalitiesPoints <- mapMunicipalities filePaths settings colorAllLocalities
-  municipalityPoints <- mapMunicipality filePaths municipality settings colorTheLocality
+mapMunicipalitiesInState ∷ FilePaths → State → FilePath → IO ()
+mapMunicipalitiesInState filePaths state out = do
+  Just settings <- settingsFromState filePaths state
+  baseMap <- makeBaseMap filePaths settings
   finalisation <- closeMap settings
-  withFile (out ++ "/" ++ T.unpack (municipalityName municipality) ++ " in " ++ show (municipalityState municipality) ++ ".eps") WriteMode $ \dst ->  -- TODO perhaps not a conduit?
-    CC.yieldMany ([initialisation, coastMap, title] ++ urbanPoints ++ municipalitiesPoints ++ municipalityPoints ++ [finalisation])
-      $$ CC.sinkHandle dst
+  munis <- municipalitiesByFilePath (municipalityFilePathByState state filePaths) state
+  mapM_ (mapMunicipalityInState filePaths out settings baseMap finalisation) munis
 
+mapMunicipalityInState :: FilePaths -> FilePath -> Settings -> [ByteString] -> ByteString -> Municipality -> IO ()
+mapMunicipalityInState filePaths out settings baseMap finalisation muni = do
+  title <- mapTitle settings (muniLongName muni)
+  municipalitiesPoints <- mapMunicipalities filePaths settings colorAllLocalities
+  municipalityPoints <- mapMunicipality filePaths muni settings colorTheLocality
+  writeMap 
+    (baseMap ++ municipalitiesPoints ++ municipalityPoints ++ [title, finalisation])
+    (out ++ "/" ++ T.unpack (muniName muni) ++ " in " ++ show (muniState muni) ++ ".eps")
+
+makeBaseMap :: FilePaths -> Settings -> IO [ByteString]
+makeBaseMap filePaths settings = do
+   initialisation <- initialiseMap settings
+   coastMap <- mapCoast settings
+   urbanPoints <- mapUrbanAreas filePaths settings
+   return $ [initialisation, coastMap] ++ urbanPoints
+
+writeMap :: [ByteString] -> FilePath -> IO ()
+writeMap bytestrings filename = runResourceT $ CC.yieldMany bytestrings $$ CB.sinkFile filename
 
 pointsFromRecord ∷ ShpRec → [[(Double, Double)]]
 pointsFromRecord r = concatMap pointsFromRecContents (catMaybes [shpRecContents r])
@@ -301,7 +292,7 @@ eachPlace ∷ Conduit (a, ShpRec, b) IO [[(Double, Double)]]
 eachPlace = CC.map (\(_, r, _) -> return . concat . pointsFromRecord $ r)
 
 matchMunicipality ∷ Municipality → Shape → Bool
-matchMunicipality m = matchTextDbfField lgaColumnName (municipalityName m)
+matchMunicipality m = matchTextDbfField lgaColumnName (muniName m)
 
 lgaColumnName ∷ Text → Bool
 lgaColumnName t = "_LGA__3" `T.isSuffixOf` t
