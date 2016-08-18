@@ -3,9 +3,11 @@ module Main (main)
 where
 
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 import Data.ByteString (ByteString)
 import Data.Conduit
 import Data.Dbase.Parser
+import Data.Dbase.Conduit
 import qualified Data.Conduit.Binary as CB
 import qualified Data.Conduit.Combinators as CC
 import qualified Data.Conduit.List as CL
@@ -21,15 +23,38 @@ import System.FilePath
 import Map
 
 main :: IO ()
-main = getArgs >>= mapFile
+main = getArgs >>= mapState
+
+mapState :: [String] -> IO ()
+mapState (state:source:dest:_) = mapSomeState (read state) (withFiles source) dest
+mapState _ = error "I expect three arguments: a state, the source folder and the dest folder"
+
+mapSomeState :: State -> FilePaths -> FilePath -> IO ()
+mapSomeState state fps dest = do
+  munis <- municipalitiesByFilePath (municipalityFilePathByState state fps) state
+  mapM_ (mapSomeMunicipality fps dest) munis
+
+mapSomeMunicipality :: FilePaths -> FilePath -> Municipality -> IO ()
+mapSomeMunicipality fps dest muni = do
+  mapMunicipalityInState fps muni dest
+  mapMunicipalityLocally fps muni dest
 
 mapFile :: [FilePath] -> IO ()
 mapFile (source:dest:_) = do
-  mapMunicipalityInState (withFiles source) muni dest
+  --mapMunicipalityInState (withFiles source) muni dest
   mapMunicipalityLocally (withFiles source) muni dest
     where
       muni = Municipality {municipalityState = Qld, municipalityName = "MORNINGTON", municipalityLongName = "MORNINGTON SHIRE"}
 mapFile _ = error "You need to specify the source data folder and the destination filename"
+
+municipalitiesByFilePath :: FilePath -> State -> IO [Municipality]
+municipalitiesByFilePath fp state = runResourceT $ CB.sourceFile (toDbf fp)
+  =$= dbfConduit
+  =$= CC.map (\f -> Municipality {
+    municipalityState = state,
+    municipalityName = dbfFieldCharacter $ readLgaColumnName f,
+    municipalityLongName = dbfFieldCharacter $ readLgaColumnLongName f})
+  $$ CC.sinkList
 
 
 data FilePaths = FilePaths {
@@ -132,12 +157,6 @@ colorAllMunicipalities = Outline (Points 1.0) (Color 150 150 150)
 colorTheMunicipality :: Pen
 colorTheMunicipality = Solid (Color 254 254 233)
 
-sourceFromStart :: (MonadIO m) => Handle -> ConduitM i ByteString m ()
-sourceFromStart handle = CB.sourceHandleRange handle (Just 0) Nothing
-
-shapesFromDbfShpSource :: Handle -> Handle -> Source IO Shape
-shapesFromDbfShpSource shp dbf = shpDbfConduit (sourceFromStart shp) (sourceFromStart dbf)
-
 settingsFromShapefileStream :: Shape -> Settings
 settingsFromShapefileStream (header, _, _) = settingsFromRecBBox . toRecBB . shpBB $ header
 
@@ -164,11 +183,11 @@ municipalityFilePathByMunicipality fps muni = municipalityFilePathByState (munic
 
 settingsFromMunicipalityInState :: FilePaths -> Municipality -> IO (Maybe Settings)
 settingsFromMunicipalityInState paths municipality = withMunicipalityFile paths municipality $ \shp dbf ->
-  (fmap settingsFromShapefileStream) <$> (shapesFromDbfShpSource shp dbf $$ CL.head)
+  (fmap settingsFromShapefileStream) <$> (shapesFromDbfShpSource Nothing shp dbf $$ CL.head)
 
 settingsFromMunicipality :: FilePaths -> Municipality -> IO (Maybe Settings)
 settingsFromMunicipality paths municipality = withMunicipalityFile paths municipality $ \shp dbf ->
-  (settingsFromRecBBox <$>) <$> (shapesFromDbfShpSource shp dbf =$= CC.filter (matchMunicipality municipality) =$= CC.map (\(_, a, _) -> shpRecBBox a) $$ CL.fold bigBoundingBox Nothing)
+  (settingsFromRecBBox <$>) <$> (shapesFromDbfShpSource Nothing shp dbf =$= CC.filter (matchMunicipality municipality) =$= CC.map (\(_, a, _) -> shpRecBBox a) $$ CL.fold bigBoundingBox Nothing)
 
 withShpFile :: FilePath -> (Handle -> Handle -> IO a) -> IO a
 withShpFile filePath cb =
@@ -190,17 +209,17 @@ matchUrbanAreaType = matchTextDbfField (\t -> t == "SOS_NAME11")
 
 mapUrbanAreas :: FilePaths -> Settings -> IO [ByteString]
 mapUrbanAreas paths settings = withShpFile (urbanAreas paths) $ \shp dbf -> do
-  bLoc <- shapesFromDbfShpSource shp dbf
+  bLoc <- shapesFromDbfShpSource (Just $ boundingBox settings) shp dbf
     =$= CC.filter (matchUrbanAreaType "Bounded Locality")
     =$= eachPolygon
     =$= mapPoints3 settings colorBoundedLocality 60
     $$ CC.sinkList
-  othUrban <- shapesFromDbfShpSource shp dbf
+  othUrban <- shapesFromDbfShpSource (Just $ boundingBox settings) shp dbf
     =$= CC.filter (matchUrbanAreaType "Other Urban")
     =$= eachPolygon
     =$= mapPoints3 settings colorOtherUrban 60
     $$ CC.sinkList
-  majUrban <- shapesFromDbfShpSource shp dbf
+  majUrban <- shapesFromDbfShpSource (Just $ boundingBox settings) shp dbf
     =$= CC.filter (matchUrbanAreaType "Major Urban")
     =$= eachPolygon
     =$= mapPoints3 settings colorMajorUrban 60
@@ -209,21 +228,21 @@ mapUrbanAreas paths settings = withShpFile (urbanAreas paths) $ \shp dbf -> do
 
 mapMunicipalities :: FilePaths -> Settings -> Pen -> IO [ByteString]
 mapMunicipalities fps settings pen = concat <$> (withMunicipalityFiles fps $ \shp dbf ->
-  shapesFromDbfShpSource shp dbf
+  shapesFromDbfShpSource (Just $ boundingBox settings) shp dbf
    =$= eachPolygon
     =$= mapPoints3 settings pen 0
    $$ CC.sinkList)
 
 mapLocalities :: FilePaths -> Settings -> Pen -> IO [ByteString]
 mapLocalities fps settings pen = concat <$> (withLocalityFiles fps $ \shp dbf ->
-  shapesFromDbfShpSource shp dbf
+  shapesFromDbfShpSource (Just $ boundingBox settings) shp dbf
    =$= eachPolygon
     =$= mapPoints3 settings pen 0
    $$ CC.sinkList)
 
 mapMunicipality :: FilePaths -> Municipality -> Settings -> Pen -> IO [ByteString]
 mapMunicipality fps muni settings pen = withMunicipalityFile fps muni $ \shp dbf ->
-  shapesFromDbfShpSource shp dbf
+  shapesFromDbfShpSource (Just $ boundingBox settings) shp dbf
    =$= CC.filter (matchMunicipality muni)
    =$= eachPlace
      =$= mapPoints3 settings pen 60
@@ -260,40 +279,6 @@ mapMunicipalityInState filePaths municipality out = do
       $$ CC.sinkHandle dst
 
 
- -- mapFilePath :: FilePath -> FilePath -> ResourceT IO ()
- -- mapFilePath = mapFileHandle
- -- --mapFilePath src dst = mapFileHandle
- --    --liftIO withFile src ReadMode $ \srcH ->
- --    --liftIO withFile dst WriteMode $ \dstH ->
- --    --mapFileHandle srcH dstH
- --
- -- cdt :: Settings -> ConduitM () ByteString IO () -> IO [ByteString]
- -- cdt settings source = source
- --       =$= shapefileConduit
- --       =$= points
- --       =$= mapPoints3 settings (Outline (Points 1) (Color 0 100 200)) 5
- --       $$ CC.sinkList
- --
- -- cdt' :: Settings -> ResourceT (ConduitM () ByteString IO) () -> ResourceT IO [ByteString]
- -- cdt' settings source = source >>= (lift . cdt settings)
- --
- -- mapFileHandle :: FilePath -> FilePath -> ResourceT IO ()
- -- mapFileHandle src dst = do
- --    Just (shpHead, _) <- CC.sourceFile src =$= shapefileConduit $$ CL.head
- --    let settings = withDefaultSettings (toRecBB $ shpBB shpHead)
- --    initialisation <- liftIO $ initialiseMap settings
- --    mapPoints' <- (Lift.distribute $
- --       CB.sourceFile "/home/cassowary/Projects/source-data/cth/NSWLGAPOLYGON/NSW_LGA_POLYGON_shp.shp")
- --       >>= cdt settings
- --    --  mapPoints <-
- --    --     CB.sourceFile "/home/cassowary/Projects/source-data/cth/NSWLGAPOLYGON/NSW_LGA_POLYGON_shp.shp"
- --    --     =$= shapefileConduit
- --    --     =$= points
- --    --     =$= mapPoints3 settings (Outline (Points 1) (Color 0 100 200)) 5
- --    --     $$ CC.sinkList
- --    finalisation <- liftIO $ closeMap settings
- --    liftIO $ CC.yieldMany ([initialisation] ++ mapPoints' ++ [finalisation]) $$ CC.sinkHandle dst
-
 pointsFromRecord :: ShpRec -> [[(Double, Double)]]
 pointsFromRecord r = concatMap pointsFromRecContents (catMaybes [shpRecContents r])
 pointsFromRecContents :: RecContents -> [[(Double, Double)]]
@@ -306,28 +291,14 @@ eachPolygon = CC.map (\(_, r, _) -> pointsFromRecord r)
 eachPlace :: Conduit (a, ShpRec, b) IO [[(Double, Double)]]
 eachPlace = CC.map (\(_, r, _) -> return . concat . pointsFromRecord $ r)
 
-toRecBB :: ShpBBox -> RecBBox
-toRecBB bb = RecBBox {
-      recXMin = shpXMin bb,
-      recXMax = shpXMax bb,
-      recYMin = shpYMin bb,
-      recYMax = shpYMax bb
-   }
-
-matchTextDbfField :: (Text -> Bool) -> Text -> Shape -> Bool
-matchTextDbfField checkColumn t (_, _, s) = columnHasCharacter t (shapeFieldByColumnNameRule checkColumn s)
-
 matchMunicipality :: Municipality -> Shape -> Bool
 matchMunicipality m = matchTextDbfField lgaColumnName (municipalityName m)
-
-columnHasCharacter :: Text -> DbfField -> Bool
-columnHasCharacter c (DbfFieldCharacter d) = c == d
-columnHasCharacter _ _ = False
 
 lgaColumnName :: Text -> Bool
 lgaColumnName t = "_LGA__3" `T.isSuffixOf` t
 
-shapeFieldByColumnNameRule :: (Text -> Bool) -> DbfRow -> DbfField
-shapeFieldByColumnNameRule rule (DbfRow c) = snd . head $ filter (\(l,_) -> rule $ dbfcName l) c
+lgaColumnLongName :: Text -> Bool
+lgaColumnLongName t = "_LGA__2" `T.isSuffixOf` t
 
--- makeBaseMap settings = BS.concat [initialiseMap settings
+readLgaColumnLongName = shapeFieldByColumnNameRule lgaColumnLongName
+readLgaColumnName = shapeFieldByColumnNameRule lgaColumnName
