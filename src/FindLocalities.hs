@@ -89,6 +89,9 @@ cdt shapeFilter bbox polygons shpH dbfH =
   shpDbfConduit bbox shpH dbfH
     =$= CC.filter shapeFilter
     =$= CC.map (\l@(_, _, c) -> (toClipperPolygons l, (shapeFieldByColumnNameRule localityColumnName c)))
+    =$= CL.mapMaybe (\(a, b) -> case b of
+         Just v -> Just (a, v)
+         Nothing -> Nothing)
     =$= CC.mapM (addIntersection polygons)
     =$= CC.filterM (\(_, _, c) -> return (0 /= (sizes c)))
     =$= CC.filterM (\(_, _, c) -> do

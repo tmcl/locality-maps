@@ -46,10 +46,11 @@ mapSomeState state fps dest = mapMunicipalitiesInState fps state dest
 municipalitiesByFilePath ∷ FilePath → State → IO (Set Municipality)
 municipalitiesByFilePath fp state = fmap S.fromList <$> runResourceT $ CB.sourceFile (toDbf fp)
   =$= dbfConduit
-  =$= CC.map (\f -> Municipality {
-    muniState = state,
-    muniName = dbfFieldCharacter $ readLgaColumnName f,
-    muniLongName = dbfFieldCharacter $ readLgaColumnLongName f})
+  =$= CL.mapMaybe (\f -> 
+      Municipality 
+         state 
+         <$> (dbfFieldCharacter <$> readLgaColumnLongName f) 
+         <*> (dbfFieldCharacter <$> readLgaColumnName f))
   =$= CL.groupBy (==)
   =$= CC.filter ((0 <) . length)
   =$= CL.mapMaybe uncons
@@ -131,10 +132,10 @@ allFilter :: a -> Bool
 allFilter = const True
 
 localityFilter :: Shape -> Bool
-localityFilter = matchTextDbfField localityTypeColumn "G"
+localityFilter = matchTextDbfField "G" localityTypeColumn 
 
 districtFilter :: Shape -> Bool
-districtFilter = matchTextDbfField localityTypeColumn "D"
+districtFilter = matchTextDbfField "D" localityTypeColumn
 
 localityTypeColumn t = "_LOCA_5" `T.isSuffixOf` t || "_LOCAL_5" `T.isSuffixOf` t
 
@@ -267,10 +268,10 @@ multiSources yielder bbox sink = mapM (go sink) yielder
     go sink (filePath, filter) = shapeSource filePath bbox (CC.filter filter =$= sink)
 
 matchUrbanAreaType ∷ Text → Shape → Bool
-matchUrbanAreaType = matchTextDbfField (== "SOS_NAME11")
+matchUrbanAreaType = (`matchTextDbfField` (== "SOS_NAME11"))
 
 matchFeatCode ∷ Text → Shape → Bool
-matchFeatCode = matchTextDbfField (== "FEAT_CODE")
+matchFeatCode = (`matchTextDbfField` (== "FEAT_CODE"))
 
 mapUrbanAreas ∷ FilePaths → Settings → IO [ByteString]
 mapUrbanAreas fps settings = do 
@@ -428,13 +429,13 @@ wrapEnds [a] = [a]
 wrapEnds line = (last line):line
 
 matchMunicipality ∷ Municipality → Shape → Bool
-matchMunicipality m = matchTextDbfField lgaColumnName (muniName m)
+matchMunicipality m = matchTextDbfField (muniName m) lgaColumnName
 
 matchState :: State -> Shape -> Bool
-matchState s = matchNumericDbfField stateCodeColumnName (stateCode s)
+matchState s = matchNumericDbfField (stateCode s) stateCodeColumnName
 
 matchLocality ∷ Locality → Shape → Bool
-matchLocality m = matchTextDbfField localityColumnName m
+matchLocality m = matchTextDbfField m localityColumnName
 
 lgaColumnName ∷ Text → Bool
 lgaColumnName t = "_LGA__3" `T.isSuffixOf` t || "_LGA_s_3" `T.isSuffixOf` t
