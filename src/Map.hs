@@ -25,7 +25,6 @@ import qualified Data.Conduit.Combinators as CC
 import Data.Conduit
 import Control.Monad.IO.Class
 import qualified Data.Vector as V
---import ClassyPrelude (trace)
 
 class GMTOption a where
     tshow :: a -> String
@@ -60,7 +59,6 @@ withDefaultSettings :: RecBBox  -> Settings
 withDefaultSettings bbox = Settings {
     orientation = Portrait,
     projection = "-JM60c",
-    -- land = Solid (Color 224 224 224),
     land = Solid (Color 245 245 245),
     water = Solid (Color 198 236 255),
     boundingBox = bbox
@@ -82,12 +80,6 @@ instance GMTOption Pen where
 colorToText :: Color -> String
 colorToText (Color red green blue) = intercalate "/" (map show [red, green, blue])
 
--- settingsToArgs :: GMTSettings -> [T.Text]
--- settingsToArgs settings = [orientation settings, projection settings, penToText . pen $ settings]
-
--- withPen :: GMTPen -> GMTSettings
--- withPen newColor = GMTSettings { orientation = "-P", projection = "-JM144/37/15c", pen = newColor }
-
 pointToPstPoint :: S.Point -> ByteString
 pointToPstPoint (easting, westing) = B8.pack $ show easting ++ " " ++ show westing
 
@@ -100,12 +92,6 @@ polygonsToPstPoints pts = f
 
 polygonsToPstPointsConduit :: Conduit [S.Point] IO ByteString
 polygonsToPstPointsConduit = CC.map polygonToPstPoints =$= CC.intersperse ">\n"
-
---drawMap :: Settings -> [(Pen, Int, [[S.Point]])] -> IO T.Text
---drawMap settings points = do
-    --initialiseMap settings <|> mapCoast settings
-        -- <|> (foldr (<|>) empty (map (mapPoints settings) points))
-        -- <|> closeMap settings
 
 initialiseMap :: Settings -> IO ByteString
 initialiseMap settings
@@ -144,34 +130,12 @@ mapPoints3 :: Settings -> Pen -> Int -> Conduit [[S.Point]] IO ByteString
 mapPoints3 settings pen transparency = CC.conduitVector 200 =$= awaitForever go
    where
       go points = liftIO (mapPoints1 settings (pen, transparency, concat $ V.toList points)) >>= yield
---mapPoints4 settings pen transparency = do
-   --blah <- await
-   --traceM (show blah)
-   --case blah of
-      --Nothing -> return ()
-      --Just points -> (liftIO $ mapPoints1 settings (pen, transparency, [points])) >>= yield
-
--- mapPoints2 ::Settings -> Pen -> Int -> Producer IO [S.Point] -> IO ByteString
--- mapPoints2 settings pen transparency points
---    = do
---     (a, builder, c ) <- CP.sourceProcessWithStreams
---        (proc "gmt" (mapPointsParams settings (pen, transparency)))
---        (points =$= polygonsToPstPointsConduit)
---        CC.sinkBuilder
---        CC.sinkBuilder
---     traceM $ show a
---     traceM $ show $ toByteString builder
---     traceM $ show $ toByteString c
---     return $ toByteString builder
 
 mapPoints1 :: Settings -> (Pen, Int, [[S.Point]]) -> IO ByteString
 mapPoints1 settings (pen, transparency, points) = inproc "gmt" (mapPointsParams settings (pen, transparency)) (polygonsToPstPoints points)
 
 inproc :: String -> [String] -> ByteString -> IO ByteString
 inproc a b c = B8.pack <$> readProcess a b (B8.unpack c)
-
-traceShow :: (Show s) => s -> s
-traceShow i = i
 
 mapCoast :: Settings -> IO ByteString
 mapCoast settings = inproc "gmt" [

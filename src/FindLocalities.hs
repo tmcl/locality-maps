@@ -65,7 +65,6 @@ fromClipperPoint (IntPoint x y) =
 localitiesByMunicipality :: T.Text -> FilePath -> Yielder -> IO (Set Locality)
 localitiesByMunicipality municipality municipalities localities = do
   shapes <- shapesByName municipalities lgaColumnName municipality
-  print shapes
   let (polygons', bbox') = unzip $ concatMap toClipperPolygons shapes
       polygons = Polygons polygons'
       bbox = foldl bigBoundingBox Nothing bbox'
@@ -76,9 +75,7 @@ searcher ∷ Polygons → Maybe RecBBox → ShapeSource → IO [Text]
 searcher polygons bbox yielder = makeShpDbfConduit (fst yielder) (\h1 h2 -> 
       cdt (snd yielder) bbox polygons h1 h2 
       =$= CC.map (\(_, c) -> c)
-      =$= CC.mapM (\l -> putStrLn (show l ++ " before") >> return l)
       =$= CL.mapMaybe readChar
-      =$= CC.mapM (\l -> putStrLn (show l ++ " after") >> return l)
       $$ CC.sinkList)
 
 readChar :: DbfField -> Maybe Text
@@ -90,18 +87,15 @@ type Locality = T.Text
 cdt :: (Shape -> Bool) -> Maybe RecBBox -> Polygons -> Source IO ByteString -> Source IO ByteString -> ConduitM () ([(Polygon, Maybe RecBBox)], DbfField) IO ()
 cdt shapeFilter bbox polygons shpH dbfH =
   shpDbfConduit bbox shpH dbfH
-    =$= CC.mapM (\r@(_, _, c) -> print (shapeFieldByColumnNameRule localityColumnName c)  >> return r)
     =$= CC.filter shapeFilter
     =$= CC.map (\l@(_, _, c) -> (toClipperPolygons l, (shapeFieldByColumnNameRule localityColumnName c)))
-    =$= CC.mapM (\l@(_, b) -> putStrLn (show b ++ " testing") >> return l)
     =$= CC.mapM (addIntersection polygons)
     =$= CC.filterM (\(_, _, c) -> return (0 /= (sizes c)))
-    =$= CC.mapM (\l@(_, b, _) -> putStrLn (show b ++ " preliminarily accepted") >> return l)
     =$= CC.filterM (\(_, _, c) -> do
          let (Polygons pp) = c
          biggest <- maximum <$> (mapM polygonArea pp)
          return $ biggest > 1e25 && length pp < 6 || biggest > 1e27)
-    =$= CC.mapM (\(a, b, _) -> putStrLn (show b ++ " accepted") >> return (a, b))
+    =$= CC.mapM (\(a, b, _) -> return (a, b))
 
 sizes :: Polygons -> Integer
 sizes (Polygons ps) = fromIntegral $ length ps

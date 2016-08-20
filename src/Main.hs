@@ -23,7 +23,6 @@ import qualified Data.Set as S
 import Data.Set (Set)
 import System.Process
 import qualified Data.ByteString.Char8 as B8
-import ClassyPrelude (trace)
 
 import Map hiding (mapCoast)
 import qualified Map
@@ -55,10 +54,7 @@ municipalitiesByFilePath fp state = fmap S.fromList <$> runResourceT $ CB.source
   =$= CC.filter ((0 <) . length)
   =$= CL.mapMaybe uncons
   =$= CC.map fst
-  =$= conduitPrinter
   $$ CC.sinkList
-
-conduitPrinter = CC.mapM (\v -> liftIO (print v) >> return v)
 
 data FilePaths = FilePaths {
    states            :: FilePath,
@@ -381,8 +377,6 @@ mapMunicipalitiesInState fps state out = do
   statePoints <- mapStateLocally fps settings state colorTheMunicipality
   munisPoints <- mapMunicipalities fps settings colorAllLocalities
   munis <- municipalitiesByFilePath (municipalityFilePathByState state fps) state
-  putStrLn "hello\n\n"
-  --let munis = S.filter (\l -> muniName l == "PUA") munis'
   mapM_ (mapMunicipalityInState fps out settings (snoc baseMap munisPoints) finalisation) munis
 
 mapMunicipalityInState ∷ FilePaths → FilePath → Settings → [ByteString] → ByteString → Municipality → IO ()
@@ -441,9 +435,6 @@ matchState s = matchNumericDbfField stateCodeColumnName (stateCode s)
 
 matchLocality ∷ Locality → Shape → Bool
 matchLocality m = matchTextDbfField localityColumnName m
-
---localityColumnName ∷ Text → Bool
---localityColumnName t = "_LOCA_2" `T.isSuffixOf` t || "_LOCAL_2" `T.isSuffixOf` t || trace ("sought " ++ show t) False
 
 lgaColumnName ∷ Text → Bool
 lgaColumnName t = "_LGA__3" `T.isSuffixOf` t || "_LGA_s_3" `T.isSuffixOf` t
