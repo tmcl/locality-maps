@@ -421,7 +421,14 @@ eachPolygon ∷ Conduit (a, ShpRec, b) IO [[(Double, Double)]]
 eachPolygon = CC.map (\(_, r, _) -> pointsFromRecord r)
 
 eachPlace ∷ Conduit (a, ShpRec, b) IO [[(Double, Double)]]
-eachPlace = CC.map (\(_, r, _) -> return . concat . (map wrapEnds) . pointsFromRecord $ r)
+eachPlace = CC.map (\(_, r, _) -> 
+   return . concat . andReverseTheRest . (map wrapEnds) . pointsFromRecord $ r)
+
+andReverseTheRest :: [[a]] -> [[a]]
+andReverseTheRest (main:rest) = main:(intersperse [home] rest)
+  where home = last main
+andReverseTheRest a = a
+
 
 wrapEnds :: [(Double, Double)] -> [(Double, Double)]
 wrapEnds [] = []
