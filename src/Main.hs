@@ -359,11 +359,19 @@ mapLines settings pen = eachPolygon =$= mapPoints3 settings pen =$= CC.sinkList
 
 mapRivers :: FilePaths -> Settings -> IO [ByteString]
 mapRivers fps settings = shapeSource (rivers fps) (Just $ boundingBox settings)
-  (mapLines settings (riverPen settings))
+     (mapLines settings (riverPen settings))
 
 mapLakes :: FilePaths -> Settings -> IO [ByteString]
-mapLakes fps settings = shapeSource (lakes fps) (Just $ boundingBox settings)
-  (mapAreas settings (water settings))
+mapLakes fps settings = do
+  let justWater = CC.filter (matchType "riverbank" ∨ matchType "water")
+  filled <- shapeSource (lakes fps) (Just $ boundingBox settings)
+    (justWater =$= mapAreas settings (water settings))
+  outlined <- shapeSource (lakes fps) (Just $ boundingBox settings)
+    (justWater =$= mapLines settings (riverPen settings))
+  return $ filled ++ outlined
+ 
+(∨) :: (a -> Bool) -> (a -> Bool) -> (a -> Bool)
+(p ∨ q) a = p a || q a
 
 mapMunicipalityLocally ∷ FilePaths → Municipality → FilePath → IO ()
 mapMunicipalityLocally fps muni out = do
@@ -427,8 +435,9 @@ writeMap bytestrings filename = do
 pointsFromRecord ∷ ShpRec → [[(Double, Double)]]
 pointsFromRecord r = concatMap pointsFromRecContents (catMaybes [shpRecContents r])
 pointsFromRecContents ∷ RecContents → [[(Double, Double)]]
-pointsFromRecContents r@RecPolygon {} = recPolPoints r
-pointsFromRecContents _               = []
+pointsFromRecContents r@RecPolygon {}  = recPolPoints r
+pointsFromRecContents r@RecPolyLine {} = recPolLPoints r
+pointsFromRecContents _                = []
 
 eachPolygon ∷ Conduit (a, ShpRec, b) IO [[(Double, Double)]]
 eachPolygon = CC.map (\(_, r, _) -> pointsFromRecord r)
@@ -447,6 +456,9 @@ wrapEnds :: [(Double, Double)] -> [(Double, Double)]
 wrapEnds [] = []
 wrapEnds [a] = [a]
 wrapEnds line = (last line):line
+
+matchType ∷ T.Text → Shape → Bool
+matchType t = matchTextDbfField t (== "type")
 
 matchMunicipality ∷ Municipality → Shape → Bool
 matchMunicipality m = matchTextDbfField (muniName m) lgaColumnName
