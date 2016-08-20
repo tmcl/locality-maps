@@ -1,6 +1,16 @@
 {-# LANGUAGE RankNTypes #-}
+
 module Map
-where
+  (closeMap
+  ,mapCoast
+  ,initialiseMap
+  ,mapTitle
+  ,mapPoints3
+  ,Settings(..)
+  ,Color(..)
+  ,Pen(..)
+    ,Width(..), withDefaultSettings)
+  where
 
 import Data.List
 import Geometry.Shapefile.Types
@@ -15,6 +25,7 @@ import qualified Data.Conduit.Combinators as CC
 import Data.Conduit
 import Control.Monad.IO.Class
 import qualified Data.Vector as V
+--import ClassyPrelude (trace)
 
 class GMTOption a where
     tshow :: a -> String
@@ -23,13 +34,13 @@ instance GMTOption T.Text where
     tshow = T.unpack
 
 instance GMTOption RecBBox where
-    tshow b = concat ["-R", 
-                      show $ recXMin b, 
-                      "/", 
-                      show $ recXMax b, 
-                      "/", 
-                      show $ recYMin b, 
-                      "/", 
+    tshow b = concat ["-R",
+                      show $ recXMin b,
+                      "/",
+                      show $ recXMax b,
+                      "/",
+                      show $ recYMin b,
+                      "/",
                       show $ recYMax b]
 
 data Orientation = Portrait | Landscape
@@ -48,10 +59,10 @@ data Settings = Settings {
 withDefaultSettings :: RecBBox  -> Settings
 withDefaultSettings bbox = Settings {
     orientation = Portrait,
-    projection = "-JM144/25/15.8c",
+    projection = "-JM60c",
     -- land = Solid (Color 224 224 224),
     land = Solid (Color 245 245 245),
-    water = Water (Color 198 236 255),
+    water = Solid (Color 198 236 255),
     boundingBox = bbox
 }
 
@@ -104,7 +115,7 @@ initialiseMap settings
 
 mapTitle :: Settings -> T.Text -> IO ByteString
 mapTitle settings title
-    = inproc "gmt" ["pstext", setting projection, setting boundingBox, "-F+cTL", "-O", "-K", setting orientation] (encodeUtf8 title)
+    = inproc "gmt" ["pstext", setting projection, setting boundingBox, "-F+cTL+f30p,Palatino-Roman", "-O", "-K", setting orientation] (encodeUtf8 title)
     where
         setting getter = tshow . getter $ settings
 
@@ -143,7 +154,7 @@ mapPoints3 settings pen transparency = CC.conduitVector 200 =$= awaitForever go
 -- mapPoints2 ::Settings -> Pen -> Int -> Producer IO [S.Point] -> IO ByteString
 -- mapPoints2 settings pen transparency points
 --    = do
---     (a, builder, c ) <- CP.sourceProcessWithStreams 
+--     (a, builder, c ) <- CP.sourceProcessWithStreams
 --        (proc "gmt" (mapPointsParams settings (pen, transparency)))
 --        (points =$= polygonsToPstPointsConduit)
 --        CC.sinkBuilder
@@ -158,6 +169,9 @@ mapPoints1 settings (pen, transparency, points) = inproc "gmt" (mapPointsParams 
 
 inproc :: String -> [String] -> ByteString -> IO ByteString
 inproc a b c = B8.pack <$> readProcess a b (B8.unpack c)
+
+traceShow :: (Show s) => s -> s
+traceShow i = i
 
 mapCoast :: Settings -> IO ByteString
 mapCoast settings = inproc "gmt" [

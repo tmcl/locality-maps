@@ -45,14 +45,14 @@ build-type:          Simple
 -- Constraint on the version of Cabal needed to build this package.
 cabal-version:       >=1.10
 
-executable check-localities
+executable checklocalities
   -- .hs or .lhs file containing the Main module.
   main-is:             OverlappingMunicipalities.hs
 
   
   -- Modules included in this executable, other than Main.
-  ghc-options:       -Wall -threaded
-  default-extensions: OverloadedStrings
+  ghc-options:       -Wall -Werror -threaded
+  default-extensions: OverloadedStrings, UnicodeSyntax
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    
   
@@ -75,6 +75,7 @@ executable check-localities
                        filepath ==1.4.*,
                        vector ==0.11.*,
                        clipper,
+                       containers ==0.5.*,
                        readshp
 
   -- Directories containing source files.
@@ -93,7 +94,7 @@ executable localities
   other-modules:      Shapefile2, Map
   
   ghc-options:       -Wall -threaded
-  default-extensions: OverloadedStrings
+  default-extensions: OverloadedStrings, UnicodeSyntax
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    
   
@@ -116,6 +117,7 @@ executable localities
                        filepath ==1.4.*,
                        vector ==0.11.*,
                        clipper,
+                       containers ==0.5.*,
                        readshp
 
   -- Directories containing source files.
