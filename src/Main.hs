@@ -193,23 +193,23 @@ data Municipality = Municipality {
    deriving (Show, Eq, Read, Ord)
 
 colorMajorUrban ∷ Pen
-colorMajorUrban = Solid (Color 100 100 100)
+colorMajorUrban = Pen (Solid (Color 100 100 100)) 60
 colorOtherUrban ∷ Pen
-colorOtherUrban = Solid (Color 125 125 125)
+colorOtherUrban = Pen (Solid (Color 125 125 125)) 60
 colorBoundedLocality ∷ Pen
-colorBoundedLocality = Solid (Color 150 150 150)
+colorBoundedLocality = Pen (Solid (Color 150 150 150)) 60
 
 colorTheLocality ∷ Pen
-colorTheLocality = Solid (Color 100 0 0)
+colorTheLocality = Pen (Solid (Color 100 0 0)) 60
 
 colorAllLocalities ∷ Pen
-colorAllLocalities = Outline (Points 0.4) (Color 100 0 0)
+colorAllLocalities = Pen (Outline (Points 0.4) (Color 100 0 0)) 0
 
 colorAllMunicipalities ∷ Pen
-colorAllMunicipalities = Outline (Points 2.0) (Color 150 150 150)
+colorAllMunicipalities = Pen (Outline (Points 2.0) (Color 150 150 150)) 0
 
 colorTheMunicipality ∷ Pen
-colorTheMunicipality = Solid (Color 254 254 233)
+colorTheMunicipality = Pen (Solid (Color 254 254 233)) 60
 
 settingsFromShapefileStream ∷ Shape → Settings
 settingsFromShapefileStream (header, _, _) = settingsFromRecBBox . toRecBB . shpBB $ header
@@ -287,15 +287,15 @@ mapUrbanAreas fps settings = do
       (a, b, c)) ([], [], []))
   bLoc <- CC.yieldMany bLoc'
     =$= eachPolygon
-    =$= mapPoints3 settings colorBoundedLocality 60
+    =$= mapPoints3 settings colorBoundedLocality 
     $$ CC.sinkList
   othUrban <- CC.yieldMany othUrban'
     =$= eachPolygon
-    =$= mapPoints3 settings colorOtherUrban 60
+    =$= mapPoints3 settings colorOtherUrban
     $$ CC.sinkList
   majUrban <- CC.yieldMany majUrban'
     =$= eachPolygon
-    =$= mapPoints3 settings colorMajorUrban 60
+    =$= mapPoints3 settings colorMajorUrban
     $$ CC.sinkList
   return $ concat [bLoc, othUrban, majUrban]
 
@@ -310,8 +310,8 @@ mapCoast fps settings = do
    let landPolygons = Polygons (map toClipperPolygon lands)
    Polygons seaPolygons <- (Polygons [toClipperPolygon . bboxToPolygon $ bbox] <-> landPolygons)
    let sea = map fromClipperPolygon seaPolygons
-   mappedSea <- CC.yieldMany [sea] =$= mapPoints3 settings (water settings) 0 $$ CC.sinkList
-   mappedLand <- CC.yieldMany [lands] =$= mapPoints3 settings (land settings) 0 $$ CC.sinkList
+   mappedSea <- CC.yieldMany [sea] =$= mapPoints3 settings (water settings) $$ CC.sinkList
+   mappedLand <- CC.yieldMany [lands] =$= mapPoints3 settings (land settings) $$ CC.sinkList
    return $ B8.concat (mappedSea ++ mappedLand)
    
 bboxToPolygon :: RecBBox -> [(Double, Double)]
@@ -334,7 +334,6 @@ mapLocalities fps settings pen = concat <$>
    (localitySources fps (Just $ boundingBox settings) (mapLines settings pen))
 
 -- TODO that and this are ~identical + filter, areas/lines
--- TODO embed transparency in pen bc the current flexibility just maxe confusion in my kopf
 mapLocality' ∷ FilePaths → Locality → Settings → Pen → IO [ByteString]
 mapLocality' fps locality settings pen = concat <$>
    (localitySources fps (Just $ boundingBox settings)
@@ -354,9 +353,9 @@ mapStateLocally fps settings state pen =
     (CC.filter (matchState state) =$= mapAreas settings pen)
 
 mapAreas :: Settings -> Pen -> Sink Shape IO [ByteString]
-mapAreas settings pen = eachPlace =$= mapPoints3 settings pen 60 =$= CC.sinkList
+mapAreas settings pen = eachPlace =$= mapPoints3 settings pen =$= CC.sinkList
 mapLines :: Settings -> Pen -> Sink Shape IO [ByteString]
-mapLines settings pen = eachPolygon =$= mapPoints3 settings pen 0 =$= CC.sinkList
+mapLines settings pen = eachPolygon =$= mapPoints3 settings pen =$= CC.sinkList
 
 mapRivers :: FilePaths -> Settings -> IO [ByteString]
 mapRivers fps settings = shapeSource (rivers fps) (Just $ boundingBox settings)

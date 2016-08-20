@@ -8,7 +8,7 @@ module Map
   ,mapPoints3
   ,Settings(..)
   ,Color(..)
-  ,Pen(..)
+  ,Pen(..), WritingStyle (..)
     ,Width(..), withDefaultSettings)
   where
 
@@ -60,9 +60,9 @@ withDefaultSettings :: RecBBox  -> Settings
 withDefaultSettings bbox = Settings {
     orientation = Portrait,
     projection = "-JM60c",
-    land = Solid (Color 245 245 245),
-    water = Solid (Color 198 236 255),
-    riverPen = Outline (Points 3) (Color 158 196 255),
+    land = Pen (Solid (Color 245 245 245)) 0,
+    water = Pen (Solid (Color 198 236 255)) 0,
+    riverPen = Pen (Outline (Points 3) (Color 158 196 255)) 0,
     boundingBox = bbox
 }
 
@@ -70,14 +70,18 @@ newtype Width = Points Double
 
 data Color = Color { colorRed :: Int, colorBlue :: Int, colorGreen :: Int }
 
-data Pen
+data Pen = Pen WritingStyle Int
+
+data WritingStyle
     = Solid Color
     | Water Color
     | Outline Width Color
 instance GMTOption Pen where
-    tshow (Solid color) = "-G" ++ colorToText color
-    tshow (Water color) = "-S" ++ colorToText color
-    tshow (Outline (Points pt) color) = concat ["-W", show pt, "p,", colorToText color]
+    tshow (Pen (Solid color) _) = "-G" ++ colorToText color
+    tshow (Pen (Water color)  _)= "-S" ++ colorToText color
+    tshow (Pen (Outline (Points pt) color)  _)= concat ["-W", show pt, "p,", colorToText color]
+
+transparency (Pen _ t) = t
 
 colorToText :: Color -> String
 colorToText (Color red green blue) = intercalate "/" (map show [red, green, blue])
@@ -113,8 +117,8 @@ closeMap settings
     where
         setting getter = tshow . getter $ settings
 
-mapPointsParams :: (Show s, GMTOption o) => Settings -> (o, s) -> [String]
-mapPointsParams settings (pen, transparency) = params
+mapPointsParams :: Settings -> Pen -> [String]
+mapPointsParams settings pen = params
     where
         setting getter = tshow . getter $ settings
         params = [
@@ -125,16 +129,16 @@ mapPointsParams settings (pen, transparency) = params
             "-K",
             "-O",
             setting orientation,
-            "-t" ++ show transparency
+            "-t" ++ show (transparency pen)
             ]
 
-mapPoints3 :: Settings -> Pen -> Int -> Conduit [[S.Point]] IO ByteString
-mapPoints3 settings pen transparency = CC.conduitVector 200 =$= awaitForever go
+mapPoints3 :: Settings -> Pen -> Conduit [[S.Point]] IO ByteString
+mapPoints3 settings pen = CC.conduitVector 200 =$= awaitForever go
    where
-      go points = liftIO (mapPoints1 settings (pen, transparency, concat $ V.toList points)) >>= yield
+      go points = liftIO (mapPoints1 settings (pen, concat $ V.toList points)) >>= yield
 
-mapPoints1 :: Settings -> (Pen, Int, [[S.Point]]) -> IO ByteString
-mapPoints1 settings (pen, transparency, points) = inproc "gmt" (mapPointsParams settings (pen, transparency)) (polygonsToPstPoints points)
+mapPoints1 :: Settings -> (Pen, [[S.Point]]) -> IO ByteString
+mapPoints1 settings (pen, points) = inproc "gmt" (mapPointsParams settings pen) (polygonsToPstPoints points)
 
 inproc :: String -> [String] -> ByteString -> IO ByteString
 inproc a b c = B8.pack <$> readProcess a b (B8.unpack c)
