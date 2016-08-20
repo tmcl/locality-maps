@@ -77,7 +77,9 @@ data FilePaths = FilePaths {
    ntMunicipalities  :: FilePath,
    otLocalities      :: FilePath,
    otMunicipalities  :: FilePath,
-   urbanAreas        :: FilePath
+   urbanAreas        :: FilePath,
+   lakes :: FilePath,
+   rivers :: FilePath
 }
 
 withFiles ∷ FilePath → FilePaths
@@ -101,7 +103,9 @@ withFiles sourceFolder = FilePaths {
     actLocalities     = sourceFolder ++ "/cth/ACTLOCALITYPOLYGONshp/ACT_LOCALITY_POLYGON_shp.shp",
     ntLocalities      = sourceFolder ++ "/cth/NTLOCALITYPOLYGON/NT_LOCALITY_POLYGON_shp.shp",
     otLocalities      = sourceFolder ++ "/cth/OTLOCALITYPOLYGON/OT_LOCALITY_POLYGON_shp.shp",
-    urbanAreas       = sourceFolder ++ "/abs/1270055004_sos_2011_aust_shape/SOS_2011_AUST.shp"
+    urbanAreas       = sourceFolder ++ "/abs/1270055004_sos_2011_aust_shape/SOS_2011_AUST.shp",
+    lakes = sourceFolder ++ "/misc/aus-oceania-natural-shape/natural.shp",
+    rivers = sourceFolder ++ "/misc/aus-oceania-waterways-shape/waterways.shp"
    }
 
 municipalityFilePaths ∷ FilePaths → Yielder
@@ -354,16 +358,26 @@ mapAreas settings pen = eachPlace =$= mapPoints3 settings pen 60 =$= CC.sinkList
 mapLines :: Settings -> Pen -> Sink Shape IO [ByteString]
 mapLines settings pen = eachPolygon =$= mapPoints3 settings pen 0 =$= CC.sinkList
 
+mapRivers :: FilePaths -> Settings -> IO [ByteString]
+mapRivers fps settings = shapeSource (rivers fps) (Just $ boundingBox settings)
+  (mapLines settings (riverPen settings))
+
+mapLakes :: FilePaths -> Settings -> IO [ByteString]
+mapLakes fps settings = shapeSource (lakes fps) (Just $ boundingBox settings)
+  (mapAreas settings (water settings))
+
 mapMunicipalityLocally ∷ FilePaths → Municipality → FilePath → IO ()
 mapMunicipalityLocally fps muni out = do
   Just settings <- settingsFromMunicipality fps muni
   title <- mapTitle settings (muniLongName muni)
   baseMap <- makeBaseMap fps settings
+  rivers <- mapRivers fps settings
+  lakes <- mapLakes fps settings
   munisPoints <- mapMunicipalities fps settings colorAllMunicipalities
   muniPoints <- mapMunicipality fps muni settings colorTheMunicipality
   localitiesPoints <- mapLocalities fps settings colorAllLocalities
   finalisation <- closeMap settings
-  let base = baseMap ++ munisPoints ++ muniPoints ++ localitiesPoints
+  let base = baseMap ++ rivers ++ lakes ++ munisPoints ++ muniPoints ++ localitiesPoints
   writeMap
     (base ++ [title, finalisation])
     (out ++ "/" ++ T.unpack (muniName muni) ++ " (" ++ show (muniState muni) ++ ").pdf")

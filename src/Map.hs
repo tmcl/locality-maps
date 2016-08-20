@@ -52,6 +52,7 @@ data Settings = Settings {
     projection :: T.Text,
     land :: Pen,
     water :: Pen,
+    riverPen :: Pen,
     boundingBox :: RecBBox
 }
 
@@ -61,6 +62,7 @@ withDefaultSettings bbox = Settings {
     projection = "-JM60c",
     land = Solid (Color 245 245 245),
     water = Solid (Color 198 236 255),
+    riverPen = Outline (Points 3) (Color 158 196 255),
     boundingBox = bbox
 }
 
