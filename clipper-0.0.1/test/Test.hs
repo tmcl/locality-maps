@@ -1,5 +1,6 @@
 import Algebra.Clipper
 
+main :: IO ()
 main = do
   putStrLn $ "hello"
   let p1 = Polygon [IntPoint 0 0, IntPoint 100 0, IntPoint 100 100, IntPoint 0 100]

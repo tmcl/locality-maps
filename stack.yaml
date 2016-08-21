@@ -49,7 +49,7 @@ extra-deps: [system-filepath-0.4.13.4, shapefile-0.0.0.1, dbf-0.0.0.2, rwlock-0.
 flags: {}
 
 ghc-options:
-   "*": -Wall -fno-warn-unused-do-bind
+   "*": -Wall -Werror
    "clipper": -fPIC
 
 # Extra package databases containing global packages

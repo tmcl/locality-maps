@@ -19,10 +19,6 @@ module Algebra.Clipper
 
 import Foreign
 import Foreign.C.Types
-import Data.Int(Int64)
-import Data.Word(Word64)
-import Data.Monoid
-import Control.Applicative((<$>), (<*>))
 
 #include <clipper.hpp>
 
@@ -74,7 +70,9 @@ instance Storable Polygon where
 newtype Polygons = Polygons [Polygon] deriving Show
 type PolygonsPtr = Ptr Polygons
 
+size :: Num b => Polygon -> b
 size (Polygon ps) = fromIntegral $ length ps
+sizes :: Num b => Polygons -> b
 sizes (Polygons ps) = fromIntegral $ length ps
 
 instance Monoid Polygons where
@@ -96,6 +94,7 @@ instance Storable Polygons where
                              flip withForeignPtr (setPoly poly)
               setPoly poly pptr = poke pptr poly >> polygonsAddPoly ptr pptr
 
+(<++>) :: Monoid a => a -> a -> a
 a <++> b = a `mappend` b
 
 -- struct ExPolygon {
@@ -103,12 +102,6 @@ a <++> b = a `mappend` b
 --   Polygons holes;
 -- };
 -- typedef std::vector< ExPolygon > ExPolygons;
-
-data ExPolygon
-type ExPolygonPtr = Ptr ExPolygon
-
-data ExPolygons
-type ExPolygonsPtr = Ptr ExPolygons
 
 data Clipper
 type ClipperPtr = Ptr Clipper
@@ -151,16 +144,24 @@ execute cType sPolys cPolys = clipperNew >>=
             withForeignPtr rPtr (\resPtr -> clipperExecutePolys cPtr cType resPtr)
             withForeignPtr rPtr peek
 
+intersection :: Polygons -> Polygons -> IO Polygons
 intersection = execute ctIntersection
+(<@>) :: Polygons -> Polygons -> IO Polygons
 a <@> b = a `intersection` b
 
+union :: Polygons -> Polygons -> IO Polygons
 union = execute ctUnion
+(<+>) :: Polygons -> Polygons -> IO Polygons
 a <+> b = a `union` b
 
+difference :: Polygons -> Polygons -> IO Polygons
 difference = execute ctDifference
+(<->) :: Polygons -> Polygons -> IO Polygons
 a <-> b = a `difference` b
 
+xor :: Polygons -> Polygons -> IO Polygons
 xor = execute ctXor
+(<^>) :: Polygons -> Polygons -> IO Polygons
 a <^> b = a `Algebra.Clipper.xor` b
 
 --   long64 polygon_getPointX(polygon poly, int i);
@@ -226,10 +227,6 @@ foreign import ccall "clipper.hpp &polygons_free"
 --   clipper clipper_new();
 foreign import ccall "clipper.hpp clipper_new"
         clipperNew :: IO ClipperPtr
-
---   void clipper_addPolygon(clipper c, polygon poly, PolyType ptype);
-foreign import ccall "clipper.hpp clipper_addPolygon"
-        clipperAddPolygon :: ClipperPtr -> PolygonPtr -> PolyType -> IO ()
 
 --   void clipper_addPolygons(clipper c, polygons poly, PolyType ptype);
 foreign import ccall "clipper.hpp clipper_addPolygons"

@@ -12,14 +12,12 @@ import qualified Data.Conduit.Binary          as CB
 import qualified Data.Conduit.Combinators     as CC
 import qualified Data.Conduit.List            as CL
 import           Data.Dbase.Conduit
-import           Data.Dbase.Parser
 import           Data.Maybe
 import           Data.Set                     (Set)
 import qualified Data.Set                     as S
 import           Data.Text                    (Text)
 import qualified Data.Text                    as T
 import           Geometry.Shapefile.Conduit
-import           Geometry.Shapefile.Types
 import           Map                          hiding (mapCoast)
 import           System.Environment
 import           System.FilePath
@@ -28,8 +26,8 @@ import           System.Process
 import           FindLocalities hiding (lgaColumnName)
 import Data.List
 import Utils
-
-snoc a b = a ++ b
+import System.Directory
+import Control.Monad
 
 main ∷ IO ()
 main = getArgs >>= mapState
@@ -136,6 +134,7 @@ localityFilter = matchTextDbfField "G" localityTypeColumn
 districtFilter ∷ Shape → Bool
 districtFilter = matchTextDbfField "D" localityTypeColumn
 
+localityTypeColumn ∷ Text → Bool
 localityTypeColumn t = "_LOCA_5" `T.isSuffixOf` t || "_LOCAL_5" `T.isSuffixOf` t
 
 toDbf ∷ FilePath → FilePath
@@ -187,11 +186,11 @@ data Municipality = Municipality {
 }
    deriving (Show, Eq, Read, Ord)
 
+muniFileName :: Municipality -> Text
+muniFileName m = T.replace "/" "-" (muniName m)
+
 settingsFromShapefileStream ∷ Shape → Settings
 settingsFromShapefileStream (header, _, _) = settingsFromRecBBox . toRecBB . shpBB $ header
-
-settingsFromPolygon ∷ ShpRec → Maybe Settings
-settingsFromPolygon b = settingsFromRecBBox <$> shpRecBBox b
 
 settingsFromRecBBox ∷ RecBBox → Settings
 settingsFromRecBBox = withDefaultSettings . embiggenBoundingBox
@@ -247,9 +246,9 @@ localitySources ∷ FilePaths → Maybe RecBBox → Sink Shape IO a → IO [a]
 localitySources fps = multiSources (localityFilePaths fps)
 
 multiSources ∷ Yielder → Maybe RecBBox → Sink Shape IO a → IO [a]
-multiSources yielder bbox sink = mapM (go sink) yielder
+multiSources yielder bbox sink = mapM go yielder
   where
-    go sink (filePath, filter) = shapeSource filePath bbox (CC.filter filter =$= sink)
+    go (filePath, filter') = shapeSource filePath bbox (CC.filter filter' =$= sink)
 
 matchUrbanAreaType ∷ Text → Shape → Bool
 matchUrbanAreaType = (`matchTextDbfField` (== "SOS_NAME11"))
@@ -358,18 +357,18 @@ mapMunicipalityLocally fps muni out = do
   Just settings <- settingsFromMunicipality fps muni
   title <- mapTitle settings (muniLongName muni)
   baseMap <- makeBaseMap fps settings
-  rivers <- mapRivers fps settings
-  lakes <- mapLakes fps settings
+  rivers' <- mapRivers fps settings
+  lakes' <- mapLakes fps settings
   munisPoints <- mapMunicipalities fps settings (broadLines settings)
   muniPoints <- mapMunicipality fps muni settings (broadArea settings)
   localitiesPoints <- mapLocalities fps settings (narrowLines settings)
   finalisation <- closeMap settings
-  let base = baseMap ++ rivers ++ lakes ++ munisPoints ++ muniPoints ++ localitiesPoints
+  let base = baseMap ++ rivers'  ++ lakes'  ++ munisPoints ++ muniPoints ++ localitiesPoints
   writeMap
     (base ++ [title, finalisation])
-    (out ++ "/" ++ T.unpack (muniName muni) ++ " (" ++ show (muniState muni) ++ ").pdf")
+    (out ++ "/" ++ T.unpack (muniFileName muni) ++ " (" ++ show (muniState muni) ++ ").pdf")
   localities <- localitiesByMunicipality (muniName muni) (municipalityFilePathByMunicipality fps muni) (localityFilePathsByState (muniState muni) fps)
-  mapM_ (\l → mapLocalityInMunicipality fps (out ++ "/" ++ T.unpack l ++ " in " ++ T.unpack (muniName muni) ++ " and "  ++ show (muniState muni) ++ ".pdf") settings base finalisation muni l) localities
+  mapM_ (\l → mapLocalityInMunicipality fps (out ++ "/" ++ T.unpack l ++ " in " ++ T.unpack (muniFileName muni) ++ " and "  ++ show (muniState muni) ++ ".pdf") settings base finalisation muni l) localities
 
 
 mapMunicipalitiesInState ∷ FilePaths → State → FilePath → IO ()
@@ -385,12 +384,15 @@ mapMunicipalitiesInState fps state out = do
 mapMunicipalityInState ∷ FilePaths → FilePath → Settings → [ByteString] → ByteString → Municipality → IO ()
 mapMunicipalityInState fps out settings baseMap finalisation muni = do
   print muni
-  title <- mapTitle settings (muniLongName muni)
-  municipalityPoints <- mapMunicipality fps muni settings (narrowArea settings)
-  writeMap
-    (baseMap ++ municipalityPoints ++ [title, finalisation])
-    (out ++ "/" ++ show (muniState muni) ++ " showing " ++ T.unpack (muniName muni) ++ ".pdf")
-  mapMunicipalityLocally fps muni out
+  let fn = (out ++ "/" ++ show (muniState muni) ++ " showing " ++ T.unpack (muniFileName muni) ++ ".pdf")
+  exists <- doesFileExist fn
+  when (not exists) $ do
+     title <- mapTitle settings (muniLongName muni)
+     municipalityPoints <- mapMunicipality fps muni settings (narrowArea settings)
+     writeMap
+       (baseMap ++ municipalityPoints ++ [title, finalisation])
+       fn
+     mapMunicipalityLocally fps muni out
 
 mapLocalityInMunicipality ∷ FilePaths → FilePath → Settings → [ByteString] → ByteString → Municipality → Locality → IO ()
 mapLocalityInMunicipality fps out settings baseMap finalisation muni locality = do
@@ -411,7 +413,7 @@ makeBaseMap fps settings = do
 writeMap ∷ [ByteString] → FilePath → IO ()
 --writeMap bs fp = B8.writeFile fp (B8.concat bs)
 writeMap bytestrings filename = do
-  readProcess "epstopdf" ["-f", "-o=" ++ filename] (B8.unpack . B8.concat $ bytestrings)
+  _ <- readProcess "epstopdf" ["-f", "-o=" ++ filename] (B8.unpack . B8.concat $ bytestrings)
   return ()
 
 pointsFromRecord ∷ RecBBox → ShpRec → [[(Double, Double)]]
@@ -429,19 +431,21 @@ eachPlace bbox = CC.map (\(_, r, _) →
    return . concat . andReverseTheRest . (map wrapEnds) . (pointsFromRecord bbox) $ r)
 
 andReverseTheRest ∷ [[a]] → [[a]]
-andReverseTheRest (main:rest) = main:(intersperse [home] rest)
-  where home = last main
+andReverseTheRest (first:rest) = first:(intersperse [last first] rest)
 andReverseTheRest a = a
 
+reducePrecision ∷ (RealFloat a, RealFloat b) ⇒ Int → a → b
 reducePrecision places' number = encodeFloat (s `div` (floatRadix number)^amount) places
    where
       places = -places'
       (s, e) = decodeFloat number
       amount = places - e
 
+isLike ∷ (Num a, Ord a) ⇒ a → a → a → Bool
 isLike epsilon x y = x - epsilon < y && x + epsilon > y
 
 --todo hm. convert to conduit?
+reduceShapePrecision ∷ RealFloat a ⇒ RecBBox → [(a, a)] → [(a, a)]
 reduceShapePrecision bbox boxes = if trace (show range) range < 0.5 then boxes else reduceShapePrecision' . reverse $ boxes
    where
      range = max (recXMax bbox - recXMin bbox) (recYMax bbox - recYMin bbox)
@@ -501,6 +505,8 @@ stateCode WA = 9
 lgaColumnLongName ∷ Text → Bool
 lgaColumnLongName t = "_LGA__2" `T.isSuffixOf` t || "_LGA_s_2" `T.isSuffixOf` t
 
+readLgaColumnLongName ∷ DbfRow → Maybe DbfField
 readLgaColumnLongName = shapeFieldByColumnNameRule lgaColumnLongName
 readLgaColumnName ∷ DbfRow → Maybe DbfField
 readLgaColumnName = shapeFieldByColumnNameRule lgaColumnName
+

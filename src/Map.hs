@@ -14,7 +14,6 @@ module Map
 
 import Data.List
 import Geometry.Shapefile.Types
-import qualified Shapefile2 as S
 import System.Process
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -105,18 +104,17 @@ transparency (Pen _ t) = t
 colorToText :: Color -> String
 colorToText (Color red green blue) = intercalate "/" (map show [red, green, blue])
 
-pointToPstPoint :: S.Point -> ByteString
+type Point = (Double, Double)
+
+pointToPstPoint :: Point -> ByteString
 pointToPstPoint (easting, westing) = B8.pack $ show easting ++ " " ++ show westing
 
-polygonToPstPoints :: [S.Point] -> ByteString
+polygonToPstPoints :: [Point] -> ByteString
 polygonToPstPoints pts = BS.intercalate "\n" (map pointToPstPoint pts)
 
-polygonsToPstPoints :: [[S.Point]] -> ByteString
+polygonsToPstPoints :: [[Point]] -> ByteString
 polygonsToPstPoints pts = f
    where f = BS.intercalate "\n>\n" ("":(polygonToPstPoints <$> pts))
-
-polygonsToPstPointsConduit :: Conduit [S.Point] IO ByteString
-polygonsToPstPointsConduit = CC.map polygonToPstPoints =$= CC.intersperse ">\n"
 
 initialiseMap :: Settings -> IO ByteString
 initialiseMap settings
@@ -151,12 +149,12 @@ mapPointsParams settings pen = params
             "-t" ++ show (transparency pen)
             ]
 
-mapPoints3 :: Settings -> Pen -> Conduit [[S.Point]] IO ByteString
+mapPoints3 :: Settings -> Pen -> Conduit [[Point]] IO ByteString
 mapPoints3 settings pen = CC.conduitVector 200 =$= awaitForever go
    where
       go points = liftIO (mapPoints1 settings (pen, concat $ V.toList points)) >>= yield
 
-mapPoints1 :: Settings -> (Pen, [[S.Point]]) -> IO ByteString
+mapPoints1 :: Settings -> (Pen, [[Point]]) -> IO ByteString
 mapPoints1 settings (pen, points) = inproc "gmt" (mapPointsParams settings pen) (polygonsToPstPoints points)
 
 inproc :: String -> [String] -> ByteString -> IO ByteString
