@@ -192,25 +192,6 @@ data Municipality = Municipality {
 }
    deriving (Show, Eq, Read, Ord)
 
-colorMajorUrban ∷ Pen
-colorMajorUrban = Pen (Solid (Color 100 100 100)) 60
-colorOtherUrban ∷ Pen
-colorOtherUrban = Pen (Solid (Color 125 125 125)) 60
-colorBoundedLocality ∷ Pen
-colorBoundedLocality = Pen (Solid (Color 150 150 150)) 60
-
-colorTheLocality ∷ Pen
-colorTheLocality = Pen (Solid (Color 100 0 0)) 60
-
-colorAllLocalities ∷ Pen
-colorAllLocalities = Pen (Outline (Points 0.4) (Color 100 0 0)) 0
-
-colorAllMunicipalities ∷ Pen
-colorAllMunicipalities = Pen (Outline (Points 2.0) (Color 150 150 150)) 0
-
-colorTheMunicipality ∷ Pen
-colorTheMunicipality = Pen (Solid (Color 254 254 233)) 60
-
 settingsFromShapefileStream ∷ Shape → Settings
 settingsFromShapefileStream (header, _, _) = settingsFromRecBBox . toRecBB . shpBB $ header
 
@@ -243,6 +224,10 @@ settingsFromMunicipality fps municipality = settingsFromRecBBox <$$> bbox
       =$= CC.map (shapeToBBox)
       =$= CL.fold bigBoundingBox Nothing)
     bbox = municipalitySource fps municipality Nothing conduit
+
+
+settingsFromShape :: Shape -> Maybe Settings
+settingsFromShape (_, shape, _) = settingsFromRecBBox <$> shpRecBBox shape
 
 shapeToBBox :: Shape -> Maybe RecBBox
 shapeToBBox (_, shp, _) = shpRecBBox shp
@@ -286,16 +271,16 @@ mapUrbanAreas fps settings = do
       if matchUrbanAreaType "Major Urban" shape then (a, b, shape:c) else
       (a, b, c)) ([], [], []))
   bLoc <- CC.yieldMany bLoc'
-    =$= eachPolygon
-    =$= mapPoints3 settings colorBoundedLocality 
+    =$= eachPolygon (boundingBox settings)
+    =$= mapPoints3 settings (boundedLocality settings)
     $$ CC.sinkList
   othUrban <- CC.yieldMany othUrban'
-    =$= eachPolygon
-    =$= mapPoints3 settings colorOtherUrban
+    =$= eachPolygon (boundingBox settings)
+    =$= mapPoints3 settings (otherUrban settings)
     $$ CC.sinkList
   majUrban <- CC.yieldMany majUrban'
-    =$= eachPolygon
-    =$= mapPoints3 settings colorMajorUrban
+    =$= eachPolygon (boundingBox settings)
+    =$= mapPoints3 settings (majorUrban settings)
     $$ CC.sinkList
   return $ concat [bLoc, othUrban, majUrban]
 
@@ -427,30 +412,61 @@ makeBaseMap fps settings = do
    urbanPoints <- mapUrbanAreas fps settings
    return $ [initialisation, coastMap] ++ urbanPoints
 
-writeMap ∷ [ByteString] → FilePath → IO ()
+writeMap :: [ByteString] -> FilePath -> IO ()
+--writeMap bs fp = B8.writeFile fp (B8.concat bs)
 writeMap bytestrings filename = do
-  readProcess "epstopdf" ["-f", "-o=" ++ filename] (B8.unpack . B8.concat $ bytestrings) 
+  readProcess "epstopdf" ["-f", "-o=" ++ filename] (B8.unpack . B8.concat $ bytestrings)
   return ()
 
-pointsFromRecord ∷ ShpRec → [[(Double, Double)]]
-pointsFromRecord r = concatMap pointsFromRecContents (catMaybes [shpRecContents r])
-pointsFromRecContents ∷ RecContents → [[(Double, Double)]]
+pointsFromRecord :: RecBBox -> ShpRec -> [[(Double, Double)]]
+pointsFromRecord bbox r = concatMap ((map (reduceShapePrecision bbox)) . pointsFromRecContents) (catMaybes [shpRecContents r])
+pointsFromRecContents :: RecContents -> [[(Double, Double)]]
 pointsFromRecContents r@RecPolygon {}  = recPolPoints r
 pointsFromRecContents r@RecPolyLine {} = recPolLPoints r
 pointsFromRecContents _                = []
 
-eachPolygon ∷ Conduit (a, ShpRec, b) IO [[(Double, Double)]]
-eachPolygon = CC.map (\(_, r, _) -> pointsFromRecord r)
+eachPolygon :: RecBBox -> Conduit (a, ShpRec, b) IO [[(Double, Double)]]
+eachPolygon bbox = CC.map (\(_, r, _) -> pointsFromRecord bbox r)
 
-eachPlace ∷ Conduit (a, ShpRec, b) IO [[(Double, Double)]]
-eachPlace = CC.map (\(_, r, _) -> 
-   return . concat . andReverseTheRest . (map wrapEnds) . pointsFromRecord $ r)
+eachPlace :: RecBBox -> Conduit (a, ShpRec, b) IO [[(Double, Double)]]
+eachPlace bbox = CC.map (\(_, r, _) ->
+   return . concat . andReverseTheRest . (map wrapEnds) . (pointsFromRecord bbox) $ r)
 
 andReverseTheRest :: [[a]] -> [[a]]
 andReverseTheRest (main:rest) = main:(intersperse [home] rest)
   where home = last main
 andReverseTheRest a = a
 
+reducePrecision places' number = encodeFloat (s `div` (floatRadix number)^amount) places
+   where
+      places = -places'
+      (s, e) = decodeFloat number
+      amount = places - e
+
+isLike epsilon x y = x - epsilon < y && x + epsilon > y
+
+--todo hm. convert to conduit?
+reduceShapePrecision bbox boxes = if trace (show range) range < 0.5 then boxes else reduceShapePrecision' . reverse $ boxes
+   where
+     range = max (recXMax bbox - recXMin bbox) (recYMax bbox - recYMin bbox)
+     places 
+        | range < 1 = 11
+        | 1 <= range && range < 2 = 10 
+        | 2 <= range && range < 5 = 9 
+        | 5 <= range && range < 10 = 8
+        | otherwise = 7
+     e = encodeFloat 2 (-(places + 2))
+     isNear = isLike e
+     reduceShapePrecision' = foldr reducer []  
+     reducer (x1', y1') points@((x2, y2):_) = 
+         if x1 `isNear` x2 && y1 `isNear` y2 then 
+            points 
+         else 
+            (x1, y1):points
+         where
+           x1 = reducePrecision places x1'
+           y1 = reducePrecision places y1'
+     reducer new old = new:old
 
 wrapEnds :: [(Double, Double)] -> [(Double, Double)]
 wrapEnds [] = []

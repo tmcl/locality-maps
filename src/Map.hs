@@ -8,7 +8,7 @@ module Map
   ,mapPoints3
   ,Settings(..)
   ,Color(..)
-  ,Pen(..), WritingStyle (..)
+  ,Pen(..), colorTheMunicipality_
     ,Width(..), withDefaultSettings)
   where
 
@@ -53,18 +53,36 @@ data Settings = Settings {
     land :: Pen,
     water :: Pen,
     riverPen :: Pen,
-    boundingBox :: RecBBox
+    boundingBox :: RecBBox,
+    majorUrban :: Pen,
+    otherUrban :: Pen,
+    boundedLocality :: Pen,
+    broadArea :: Pen,
+    broadLines :: Pen,
+    narrowArea :: Pen,
+    narrowLines :: Pen
 }
+
+colorTheMunicipality_ :: Pen
+colorTheMunicipality_ = Pen (Solid (Color 254 254 233)) 60
 
 withDefaultSettings :: RecBBox  -> Settings
 withDefaultSettings bbox = Settings {
     orientation = Portrait,
-    projection = "-JM60c",
+    projection = if isWide then "-JM60c" else "-JM100c+",
     land = Pen (Solid (Color 245 245 245)) 0,
     water = Pen (Solid (Color 198 236 255)) 0,
-    riverPen = Pen (Outline (Points 3) (Color 158 196 255)) 0,
-    boundingBox = bbox
+    riverPen = Pen (Outline (Points 1) (Color 9 120 171)) 0,
+    boundingBox = bbox,
+    majorUrban = Pen (Solid (Color 100 100 100)) 60,
+    otherUrban = Pen (Solid (Color 125 125 125)) 60,
+    boundedLocality = Pen (Solid (Color 150 150 150)) 60,
+    narrowArea = Pen (Solid (Color 100 0 0)) 60,
+    narrowLines = Pen (Outline (Points 0.4) (Color 100 0 0)) 0,
+    broadLines = Pen (Outline (Points 2.0) (Color 150 150 150)) 0,
+    broadArea = colorTheMunicipality_
 }
+   where isWide = recXMax bbox - recXMin bbox > recYMax bbox - recYMin bbox
 
 newtype Width = Points Double
 
@@ -81,6 +99,7 @@ instance GMTOption Pen where
     tshow (Pen (Water color)  _)= "-S" ++ colorToText color
     tshow (Pen (Outline (Points pt) color)  _)= concat ["-W", show pt, "p,", colorToText color]
 
+transparency :: Pen -> Int
 transparency (Pen _ t) = t
 
 colorToText :: Color -> String
