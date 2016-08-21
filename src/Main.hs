@@ -2,9 +2,11 @@
 module Main (main)
 where
 
-import           Control.Monad.IO.Class
+import           Algebra.Clipper
+import           ClassyPrelude                (trace)
 import           Control.Monad.Trans.Resource
 import           Data.ByteString              (ByteString)
+import qualified Data.ByteString.Char8        as B8
 import           Data.Conduit
 import qualified Data.Conduit.Binary          as CB
 import qualified Data.Conduit.Combinators     as CC
@@ -12,24 +14,20 @@ import qualified Data.Conduit.List            as CL
 import           Data.Dbase.Conduit
 import           Data.Dbase.Parser
 import           Data.Maybe
+import           Data.Set                     (Set)
+import qualified Data.Set                     as S
 import           Data.Text                    (Text)
 import qualified Data.Text                    as T
 import           Geometry.Shapefile.Conduit
 import           Geometry.Shapefile.Types
+import           Map                          hiding (mapCoast)
 import           System.Environment
 import           System.FilePath
 import           System.IO
-import qualified Data.Set as S
-import Data.Set (Set)
-import System.Process
-import qualified Data.ByteString.Char8 as B8
-
-import Map hiding (mapCoast)
-import qualified Map
-import FindLocalities hiding (lgaColumnName)
-import Utils
+import           System.Process
+import           FindLocalities hiding (lgaColumnName)
 import Data.List
-import Algebra.Clipper
+import Utils
 
 snoc a b = a ++ b
 
@@ -37,19 +35,16 @@ main ∷ IO ()
 main = getArgs >>= mapState
 
 mapState ∷ [String] → IO ()
-mapState (state:source:dest:_) = mapSomeState (read state) (withFiles source) dest
-mapState _ = error "I expect three arguments: a state, the source folder and the dest folder"
-
-mapSomeState ∷ State → FilePaths → FilePath → IO ()
-mapSomeState state fps dest = mapMunicipalitiesInState fps state dest
+mapState ("cities":source:dest:_) = mapCities (withFiles source) dest
+mapState (state:source:dest:_) = mapMunicipalitiesInState (withFiles source) (read state) dest
+mapState _ = error "I expect three arguments: a state/'cities', and source and dest folders"
 
 municipalitiesByFilePath ∷ FilePath → State → IO (Set Municipality)
 municipalitiesByFilePath fp state = fmap S.fromList <$> runResourceT $ CB.sourceFile (toDbf fp)
   =$= dbfConduit
-  =$= CL.mapMaybe (\f -> 
-      Municipality 
-         state 
-         <$> (dbfFieldCharacter <$> readLgaColumnLongName f) 
+  =$= CL.mapMaybe (\f →
+      Municipality state
+         <$> (dbfFieldCharacter <$> readLgaColumnLongName f)
          <*> (dbfFieldCharacter <$> readLgaColumnName f))
   =$= CL.groupBy (==)
   =$= CC.filter ((0 <) . length)
@@ -58,28 +53,28 @@ municipalitiesByFilePath fp state = fmap S.fromList <$> runResourceT $ CB.source
   $$ CC.sinkList
 
 data FilePaths = FilePaths {
-   states            :: FilePath,
-   nswLocalities     :: FilePath,
-   nswMunicipalities :: FilePath,
-   vicLocalities     :: FilePath,
-   vicMunicipalities :: FilePath,
-   qldLocalities     :: FilePath,
-   qldMunicipalities :: FilePath,
-   waLocalities      :: FilePath,
-   waMunicipalities  :: FilePath,
-   saLocalities      :: FilePath,
-   saMunicipalities  :: FilePath,
-   tasLocalities     :: FilePath,
-   tasMunicipalities :: FilePath,
-   actMunicipalities     :: FilePath,
-   actLocalities     :: FilePath,
-   ntLocalities      :: FilePath,
-   ntMunicipalities  :: FilePath,
-   otLocalities      :: FilePath,
-   otMunicipalities  :: FilePath,
-   urbanAreas        :: FilePath,
-   lakes :: FilePath,
-   rivers :: FilePath
+   states            ∷ FilePath,
+   nswLocalities     ∷ FilePath,
+   nswMunicipalities ∷ FilePath,
+   vicLocalities     ∷ FilePath,
+   vicMunicipalities ∷ FilePath,
+   qldLocalities     ∷ FilePath,
+   qldMunicipalities ∷ FilePath,
+   waLocalities      ∷ FilePath,
+   waMunicipalities  ∷ FilePath,
+   saLocalities      ∷ FilePath,
+   saMunicipalities  ∷ FilePath,
+   tasLocalities     ∷ FilePath,
+   tasMunicipalities ∷ FilePath,
+   actMunicipalities     ∷ FilePath,
+   actLocalities     ∷ FilePath,
+   ntLocalities      ∷ FilePath,
+   ntMunicipalities  ∷ FilePath,
+   otLocalities      ∷ FilePath,
+   otMunicipalities  ∷ FilePath,
+   urbanAreas        ∷ FilePath,
+   lakes ∷ FilePath,
+   rivers ∷ FilePath
 }
 
 withFiles ∷ FilePath → FilePaths
@@ -132,13 +127,13 @@ localityFilePaths fps = [ (nswLocalities fps, allFilter),
                           (actLocalities fps, districtFilter)
                         ]
 
-allFilter :: a -> Bool
+allFilter ∷ a → Bool
 allFilter = const True
 
-localityFilter :: Shape -> Bool
-localityFilter = matchTextDbfField "G" localityTypeColumn 
+localityFilter ∷ Shape → Bool
+localityFilter = matchTextDbfField "G" localityTypeColumn
 
-districtFilter :: Shape -> Bool
+districtFilter ∷ Shape → Bool
 districtFilter = matchTextDbfField "D" localityTypeColumn
 
 localityTypeColumn t = "_LOCA_5" `T.isSuffixOf` t || "_LOCAL_5" `T.isSuffixOf` t
@@ -160,9 +155,9 @@ municipalityFilePathByState NT  = ntMunicipalities
 municipalityFilePathByState OT  = otMunicipalities
 municipalityFilePathByState ACT  = actMunicipalities
 
-municipalityStateName :: Municipality -> Text
+municipalityStateName ∷ Municipality → Text
 municipalityStateName = stateName . muniState
-stateName :: State -> Text
+stateName ∷ State → Text
 stateName NSW = "New South Wales"
 stateName Vic = "Victoria"
 stateName Qld = "Queensland"
@@ -182,13 +177,13 @@ localityFilePathsByState SA  fps = [(saLocalities  fps, localityFilter)]
 localityFilePathsByState Tas fps = [(tasLocalities fps, allFilter)]
 localityFilePathsByState NT  fps = [(ntLocalities  fps, allFilter)]
 localityFilePathsByState OT  fps = [(otLocalities  fps, allFilter)]
-localityFilePathsByState ACT fps = (actLocalities fps, districtFilter) 
-   : (localityFilePathsByState OT fps) 
+localityFilePathsByState ACT fps = (actLocalities fps, districtFilter)
+   : (localityFilePathsByState OT fps)
 
 data Municipality = Municipality {
-   muniState    :: State,
-   muniLongName :: Text,
-   muniName     :: Text
+   muniState    ∷ State,
+   muniLongName ∷ Text,
+   muniName     ∷ Text
 }
    deriving (Show, Eq, Read, Ord)
 
@@ -213,47 +208,47 @@ municipalityFilePathByMunicipality fps muni = municipalityFilePathByState (muniS
 settingsFromState ∷ FilePaths → State → IO (Maybe Settings)
 settingsFromState fps state = settingsFromShapefileStream <$$> shapeSource (municipalityFilePathByState state fps) Nothing CL.head
 
-(<$$>) :: (Monad m, Monad n) => (a -> b) -> m (n a) -> m (n b)
+(<$$>) ∷ (Monad m, Monad n) => (a → b) → m (n a) → m (n b)
 (<$$>) a b = fmap a <$> b
 
 settingsFromMunicipality ∷ FilePaths → Municipality → IO (Maybe Settings)
 settingsFromMunicipality fps municipality = settingsFromRecBBox <$$> bbox
   where
-    conduit :: Sink Shape IO (Maybe RecBBox)
+    conduit ∷ Sink Shape IO (Maybe RecBBox)
     conduit = (CC.filter (matchMunicipality municipality)
       =$= CC.map (shapeToBBox)
       =$= CL.fold bigBoundingBox Nothing)
     bbox = municipalitySource fps municipality Nothing conduit
 
 
-settingsFromShape :: Shape -> Maybe Settings
+settingsFromShape ∷ Shape → Maybe Settings
 settingsFromShape (_, shape, _) = settingsFromRecBBox <$> shpRecBBox shape
 
-shapeToBBox :: Shape -> Maybe RecBBox
+shapeToBBox ∷ Shape → Maybe RecBBox
 shapeToBBox (_, shp, _) = shpRecBBox shp
 
 withShpFile ∷ FilePath → (Handle → Handle → IO a) → IO a
 withShpFile filePath cb =
-  withFile filePath ReadMode $ \shp ->
-    withFile (toDbf filePath) ReadMode $ \dbf ->
+  withFile filePath ReadMode $ \shp →
+    withFile (toDbf filePath) ReadMode $ \dbf →
       cb shp dbf
 
-shapeSource :: FilePath -> Maybe RecBBox -> Sink Shape IO a -> IO a
-shapeSource fp bbox sink = withShpFile fp $ \shp dbf -> 
+shapeSource ∷ FilePath → Maybe RecBBox → Sink Shape IO a → IO a
+shapeSource fp bbox sink = withShpFile fp $ \shp dbf →
    shapesFromDbfShpSource bbox shp dbf $$ sink
 
-municipalitySource :: FilePaths -> Municipality -> Maybe RecBBox -> Sink Shape IO a -> IO a
+municipalitySource ∷ FilePaths → Municipality → Maybe RecBBox → Sink Shape IO a → IO a
 municipalitySource fps muni = shapeSource (municipalityFilePathByMunicipality fps muni)
 
-municipalitySources :: FilePaths -> Maybe RecBBox -> Sink Shape IO a -> IO [a]
+municipalitySources ∷ FilePaths → Maybe RecBBox → Sink Shape IO a → IO [a]
 municipalitySources fps = multiSources (municipalityFilePaths fps)
 
-localitySources :: FilePaths -> Maybe RecBBox -> Sink Shape IO a -> IO [a]
+localitySources ∷ FilePaths → Maybe RecBBox → Sink Shape IO a → IO [a]
 localitySources fps = multiSources (localityFilePaths fps)
 
-multiSources :: Yielder -> Maybe RecBBox -> Sink Shape IO a -> IO [a]
+multiSources ∷ Yielder → Maybe RecBBox → Sink Shape IO a → IO [a]
 multiSources yielder bbox sink = mapM (go sink) yielder
-  where 
+  where
     go sink (filePath, filter) = shapeSource filePath bbox (CC.filter filter =$= sink)
 
 matchUrbanAreaType ∷ Text → Shape → Bool
@@ -263,9 +258,9 @@ matchFeatCode ∷ Text → Shape → Bool
 matchFeatCode = (`matchTextDbfField` (== "FEAT_CODE"))
 
 mapUrbanAreas ∷ FilePaths → Settings → IO [ByteString]
-mapUrbanAreas fps settings = do 
+mapUrbanAreas fps settings = do
   (bLoc', othUrban', majUrban') <- shapeSource (urbanAreas fps) (Just $ boundingBox settings)
-    (CC.foldl (\(a, b, c) shape -> 
+    (CC.foldl (\(a, b, c) shape →
       if matchUrbanAreaType "Bounded Locality" shape then (shape:a, b, c) else
       if matchUrbanAreaType "Other Urban" shape then (a, shape:b, c) else
       if matchUrbanAreaType "Major Urban" shape then (a, b, shape:c) else
@@ -284,12 +279,12 @@ mapUrbanAreas fps settings = do
     $$ CC.sinkList
   return $ concat [bLoc, othUrban, majUrban]
 
-mapCoast :: FilePaths -> Settings -> IO ByteString
+mapCoast ∷ FilePaths → Settings → IO ByteString
 mapCoast fps settings = do
    let bbox = boundingBox settings
-   lands <- shapeSource (states fps) (Just bbox) 
+   lands <- shapeSource (states fps) (Just bbox)
       (CC.filter (not . matchFeatCode "sea")
-        =$= eachPlace
+        =$= eachPlace (boundingBox settings)
         =$= CC.concat
         =$= CC.sinkList)
    let landPolygons = Polygons (map toClipperPolygon lands)
@@ -298,24 +293,24 @@ mapCoast fps settings = do
    mappedSea <- CC.yieldMany [sea] =$= mapPoints3 settings (water settings) $$ CC.sinkList
    mappedLand <- CC.yieldMany [lands] =$= mapPoints3 settings (land settings) $$ CC.sinkList
    return $ B8.concat (mappedSea ++ mappedLand)
-   
-bboxToPolygon :: RecBBox -> [(Double, Double)]
+
+bboxToPolygon ∷ RecBBox → [(Double, Double)]
 bboxToPolygon box = [
-   (recXMin box, recYMin box), 
-   (recXMax box, recYMin box), 
-   (recXMax box, recYMax box), 
+   (recXMin box, recYMin box),
+   (recXMax box, recYMin box),
+   (recXMax box, recYMax box),
    (recXMin box, recYMax box),
    (recXMin box, recYMin box)]
 
 -- TODO this and that are ~identical -localitySources +municipalitySources
 mapMunicipalities ∷ FilePaths → Settings → Pen → IO [ByteString]
-mapMunicipalities fps settings pen = concat <$> 
+mapMunicipalities fps settings pen = concat <$>
    (municipalitySources fps (Just $ boundingBox settings) (mapLines settings pen))
 
 -- TODO that and this are ~identical +localitySources -municipalitySources
 -- TODO this and that are ~identical -filter, areas/lines
 mapLocalities ∷ FilePaths → Settings → Pen → IO [ByteString]
-mapLocalities fps settings pen = concat <$> 
+mapLocalities fps settings pen = concat <$>
    (localitySources fps (Just $ boundingBox settings) (mapLines settings pen))
 
 -- TODO that and this are ~identical + filter, areas/lines
@@ -326,27 +321,27 @@ mapLocality' fps locality settings pen = concat <$>
 
 -- TODO that and this are ~identical + filter
 mapMunicipality ∷ FilePaths → Municipality → Settings → Pen → IO [ByteString]
-mapMunicipality fps muni settings pen = 
+mapMunicipality fps muni settings pen =
    (municipalitySource fps muni (Just $ boundingBox settings)
       (CC.filter (matchMunicipality muni) =$= mapAreas settings pen))
 
 -- TODO that and this are ~identical + filter
 -- stuffed naming convention
 mapStateLocally ∷ FilePaths → Settings → State → Pen → IO [ByteString]
-mapStateLocally fps settings state pen = 
-  shapeSource (states fps) (Just $ boundingBox settings) 
+mapStateLocally fps settings state pen =
+  shapeSource (states fps) (Just $ boundingBox settings)
     (CC.filter (matchState state) =$= mapAreas settings pen)
 
-mapAreas :: Settings -> Pen -> Sink Shape IO [ByteString]
-mapAreas settings pen = eachPlace =$= mapPoints3 settings pen =$= CC.sinkList
-mapLines :: Settings -> Pen -> Sink Shape IO [ByteString]
-mapLines settings pen = eachPolygon =$= mapPoints3 settings pen =$= CC.sinkList
+mapAreas ∷ Settings → Pen → Sink Shape IO [ByteString]
+mapAreas settings pen = eachPlace (boundingBox settings) =$= mapPoints3 settings pen =$= CC.sinkList
+mapLines ∷ Settings → Pen → Sink Shape IO [ByteString]
+mapLines settings pen = eachPolygon (boundingBox settings) =$= mapPoints3 settings pen =$= CC.sinkList
 
-mapRivers :: FilePaths -> Settings -> IO [ByteString]
+mapRivers ∷ FilePaths → Settings → IO [ByteString]
 mapRivers fps settings = shapeSource (rivers fps) (Just $ boundingBox settings)
      (mapLines settings (riverPen settings))
 
-mapLakes :: FilePaths -> Settings -> IO [ByteString]
+mapLakes ∷ FilePaths → Settings → IO [ByteString]
 mapLakes fps settings = do
   let justWater = CC.filter (matchType "riverbank" ∨ matchType "water")
   filled <- shapeSource (lakes fps) (Just $ boundingBox settings)
@@ -354,8 +349,8 @@ mapLakes fps settings = do
   outlined <- shapeSource (lakes fps) (Just $ boundingBox settings)
     (justWater =$= mapLines settings (riverPen settings))
   return $ filled ++ outlined
- 
-(∨) :: (a -> Bool) -> (a -> Bool) -> (a -> Bool)
+
+(∨) ∷ (a → Bool) → (a → Bool) → (a → Bool)
 (p ∨ q) a = p a || q a
 
 mapMunicipalityLocally ∷ FilePaths → Municipality → FilePath → IO ()
@@ -365,16 +360,17 @@ mapMunicipalityLocally fps muni out = do
   baseMap <- makeBaseMap fps settings
   rivers <- mapRivers fps settings
   lakes <- mapLakes fps settings
-  munisPoints <- mapMunicipalities fps settings colorAllMunicipalities
-  muniPoints <- mapMunicipality fps muni settings colorTheMunicipality
-  localitiesPoints <- mapLocalities fps settings colorAllLocalities
+  munisPoints <- mapMunicipalities fps settings (broadLines settings)
+  muniPoints <- mapMunicipality fps muni settings (broadArea settings)
+  localitiesPoints <- mapLocalities fps settings (narrowLines settings)
   finalisation <- closeMap settings
   let base = baseMap ++ rivers ++ lakes ++ munisPoints ++ muniPoints ++ localitiesPoints
   writeMap
     (base ++ [title, finalisation])
     (out ++ "/" ++ T.unpack (muniName muni) ++ " (" ++ show (muniState muni) ++ ").pdf")
   localities <- localitiesByMunicipality (muniName muni) (municipalityFilePathByMunicipality fps muni) (localityFilePathsByState (muniState muni) fps)
-  mapM_ (mapLocalityInMunicipality fps (out ++ "/" ++ show (muniState muni) ++ " " ++ T.unpack (muniName muni) ++ " showing ") settings base finalisation muni) localities
+  mapM_ (\l → mapLocalityInMunicipality fps (out ++ "/" ++ T.unpack l ++ " in " ++ T.unpack (muniName muni) ++ " and "  ++ show (muniState muni) ++ ".pdf") settings base finalisation muni l) localities
+
 
 mapMunicipalitiesInState ∷ FilePaths → State → FilePath → IO ()
 mapMunicipalitiesInState fps state out = do
@@ -390,20 +386,20 @@ mapMunicipalityInState ∷ FilePaths → FilePath → Settings → [ByteString] 
 mapMunicipalityInState fps out settings baseMap finalisation muni = do
   print muni
   title <- mapTitle settings (muniLongName muni)
-  municipalityPoints <- mapMunicipality fps muni settings colorTheLocality
+  municipalityPoints <- mapMunicipality fps muni settings (narrowArea settings)
   writeMap
     (baseMap ++ municipalityPoints ++ [title, finalisation])
     (out ++ "/" ++ show (muniState muni) ++ " showing " ++ T.unpack (muniName muni) ++ ".pdf")
   mapMunicipalityLocally fps muni out
 
-mapLocalityInMunicipality ∷ FilePaths → FilePath → Settings → [ByteString] → ByteString -> Municipality → Locality → IO ()
+mapLocalityInMunicipality ∷ FilePaths → FilePath → Settings → [ByteString] → ByteString → Municipality → Locality → IO ()
 mapLocalityInMunicipality fps out settings baseMap finalisation muni locality = do
   print locality
   title <- mapTitle settings (T.concat [locality, " in ", muniLongName muni, " and ", municipalityStateName muni])
-  municipalityPoints <- mapLocality' fps locality settings colorTheLocality
+  municipalityPoints <- mapLocality' fps locality settings (narrowArea settings)
   writeMap
     (baseMap ++ municipalityPoints ++ [title, finalisation])
-    (out ++ T.unpack (locality) ++ ".pdf")
+    out
 
 makeBaseMap ∷ FilePaths → Settings → IO [ByteString]
 makeBaseMap fps settings = do
@@ -412,27 +408,27 @@ makeBaseMap fps settings = do
    urbanPoints <- mapUrbanAreas fps settings
    return $ [initialisation, coastMap] ++ urbanPoints
 
-writeMap :: [ByteString] -> FilePath -> IO ()
+writeMap ∷ [ByteString] → FilePath → IO ()
 --writeMap bs fp = B8.writeFile fp (B8.concat bs)
 writeMap bytestrings filename = do
   readProcess "epstopdf" ["-f", "-o=" ++ filename] (B8.unpack . B8.concat $ bytestrings)
   return ()
 
-pointsFromRecord :: RecBBox -> ShpRec -> [[(Double, Double)]]
+pointsFromRecord ∷ RecBBox → ShpRec → [[(Double, Double)]]
 pointsFromRecord bbox r = concatMap ((map (reduceShapePrecision bbox)) . pointsFromRecContents) (catMaybes [shpRecContents r])
-pointsFromRecContents :: RecContents -> [[(Double, Double)]]
+pointsFromRecContents ∷ RecContents → [[(Double, Double)]]
 pointsFromRecContents r@RecPolygon {}  = recPolPoints r
 pointsFromRecContents r@RecPolyLine {} = recPolLPoints r
 pointsFromRecContents _                = []
 
-eachPolygon :: RecBBox -> Conduit (a, ShpRec, b) IO [[(Double, Double)]]
-eachPolygon bbox = CC.map (\(_, r, _) -> pointsFromRecord bbox r)
+eachPolygon ∷ RecBBox → Conduit (a, ShpRec, b) IO [[(Double, Double)]]
+eachPolygon bbox = CC.map (\(_, r, _) → pointsFromRecord bbox r)
 
-eachPlace :: RecBBox -> Conduit (a, ShpRec, b) IO [[(Double, Double)]]
-eachPlace bbox = CC.map (\(_, r, _) ->
+eachPlace ∷ RecBBox → Conduit (a, ShpRec, b) IO [[(Double, Double)]]
+eachPlace bbox = CC.map (\(_, r, _) →
    return . concat . andReverseTheRest . (map wrapEnds) . (pointsFromRecord bbox) $ r)
 
-andReverseTheRest :: [[a]] -> [[a]]
+andReverseTheRest ∷ [[a]] → [[a]]
 andReverseTheRest (main:rest) = main:(intersperse [home] rest)
   where home = last main
 andReverseTheRest a = a
@@ -468,7 +464,7 @@ reduceShapePrecision bbox boxes = if trace (show range) range < 0.5 then boxes e
            y1 = reducePrecision places y1'
      reducer new old = new:old
 
-wrapEnds :: [(Double, Double)] -> [(Double, Double)]
+wrapEnds ∷ [(Double, Double)] → [(Double, Double)]
 wrapEnds [] = []
 wrapEnds [a] = [a]
 wrapEnds line = (last line):line
@@ -479,7 +475,7 @@ matchType t = matchTextDbfField t (== "type")
 matchMunicipality ∷ Municipality → Shape → Bool
 matchMunicipality m = matchTextDbfField (muniName m) lgaColumnName
 
-matchState :: State -> Shape -> Bool
+matchState ∷ State → Shape → Bool
 matchState s = matchNumericDbfField (stateCode s) stateCodeColumnName
 
 matchLocality ∷ Locality → Shape → Bool
@@ -491,7 +487,7 @@ lgaColumnName t = "_LGA__3" `T.isSuffixOf` t || "_LGA_s_3" `T.isSuffixOf` t
 stateCodeColumnName ∷ Text → Bool
 stateCodeColumnName = (== "STATE_CODE")
 
-stateCode :: State -> Int
+stateCode ∷ State → Int
 stateCode ACT = 1
 stateCode OT = 2
 stateCode NSW = 3
@@ -506,4 +502,5 @@ lgaColumnLongName ∷ Text → Bool
 lgaColumnLongName t = "_LGA__2" `T.isSuffixOf` t || "_LGA_s_2" `T.isSuffixOf` t
 
 readLgaColumnLongName = shapeFieldByColumnNameRule lgaColumnLongName
+readLgaColumnName ∷ DbfRow → Maybe DbfField
 readLgaColumnName = shapeFieldByColumnNameRule lgaColumnName
