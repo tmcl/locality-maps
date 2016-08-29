@@ -16,6 +16,7 @@ import Data.Set (Set)
 import Data.ByteString (ByteString)
 import Control.Monad.IO.Class
 import Utils
+import Types
 
 type ShapeSource = (FilePath, Shape -> Bool)
 type Yielder = [ShapeSource]
@@ -82,8 +83,6 @@ readChar :: DbfField -> Maybe Text
 readChar (DbfFieldCharacter c) = Just c
 readChar _ = Nothing
  
-type Locality = T.Text
-
 cdt :: (Shape -> Bool) -> Maybe RecBBox -> Polygons -> Source IO ByteString -> Source IO ByteString -> ConduitM () ([(Polygon, Maybe RecBBox)], DbfField) IO ()
 cdt shapeFilter bbox polygons shpH dbfH =
   shpDbfConduit bbox shpH dbfH

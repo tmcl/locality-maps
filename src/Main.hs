@@ -29,6 +29,9 @@ import Utils
 import System.Directory
 import Control.Monad
 
+import Types
+import Municipality
+
 main ∷ IO ()
 main = getArgs >>= mapState
 
@@ -140,9 +143,6 @@ localityTypeColumn t = "_LOCA_5" `T.isSuffixOf` t || "_LOCAL_5" `T.isSuffixOf` t
 toDbf ∷ FilePath → FilePath
 toDbf = (`replaceExtension` "dbf")
 
-data State = NSW | Vic | Qld | WA | SA | Tas | ACT | NT | OT
-  deriving (Eq, Show, Read, Ord)
-
 municipalityFilePathByState ∷ State → FilePaths → FilePath
 municipalityFilePathByState NSW = nswMunicipalities
 municipalityFilePathByState Vic = vicMunicipalities
@@ -178,13 +178,6 @@ localityFilePathsByState NT  fps = [(ntLocalities  fps, allFilter)]
 localityFilePathsByState OT  fps = [(otLocalities  fps, allFilter)]
 localityFilePathsByState ACT fps = (actLocalities fps, districtFilter)
    : (localityFilePathsByState OT fps)
-
-data Municipality = Municipality {
-   muniState    ∷ State,
-   muniLongName ∷ Text,
-   muniName     ∷ Text
-}
-   deriving (Show, Eq, Read, Ord)
 
 muniFileName :: Municipality -> Text
 muniFileName m = T.replace "/" "-" (muniName m)
@@ -446,7 +439,7 @@ isLike epsilon x y = x - epsilon < y && x + epsilon > y
 
 --todo hm. convert to conduit?
 reduceShapePrecision ∷ RealFloat a ⇒ RecBBox → [(a, a)] → [(a, a)]
-reduceShapePrecision bbox boxes = if trace (show range) range < 0.5 then boxes else reduceShapePrecision' . reverse $ boxes
+reduceShapePrecision bbox boxes = if range < 0.5 then boxes else reduceShapePrecision' . reverse $ boxes
    where
      range = max (recXMax bbox - recXMin bbox) (recYMax bbox - recYMin bbox)
      places 
