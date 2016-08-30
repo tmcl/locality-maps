@@ -99,15 +99,17 @@ clipPath ∷ RecBBox → Vector Point → Vector Point
 clipPath = fmap . clipPoint
 
 clipOrd ∷ Ord a ⇒ a → a → a → a
-clipOrd low i high = min (max low i) high
+clipOrd low i = min (max low i)
 
 clipPoint ∷ RecBBox → Point → Point
 clipPoint bbox point = clipPart getX :+ clipPart getY
    where 
+      outsideLL = lowerLeft bbox - 0.01
+      outsideUR = upperRight bbox - 0.01
       clipPart get = clipOrd 
-         ((get $ lowerLeft bbox)-0.01)
+         (get outsideLL)
          (get point) 
-         ((get $ upperRight bbox)-0.01)
+         (get outsideUR)
 
 data Rect = Rect PDFFloat PDFFloat PDFFloat PDFFloat 
 
@@ -117,7 +119,7 @@ invertScale (Matrix sx _ _ _ _ _) width = width / sx
 mapOnPage ∷ Rect → Shp → PDF (PDFReference PDFXForm)
 mapOnPage rect@(Rect x0 y0 x1 y1) shape = 
    createPDFXForm x0 y0 x1 y1 $ do
-      let matrix = (matrixForBBox rect (shpBBox shape))
+      let matrix = matrixForBBox rect (shpBBox shape)
       applyMatrix matrix
       let width = invertScale matrix 1
       setWidth width
@@ -127,8 +129,7 @@ mapOnPage rect@(Rect x0 y0 x1 y1) shape =
       strokePath
 
 createPage1Content ∷ PDFReference PDFXForm → PDFReference PDFPage → PDF ()
-createPage1Content basemap page = do
-   drawWithPage page $ do
+createPage1Content basemap page = drawWithPage page $ do
       strokeColor red
       setWidth 0.5
       stroke $ Rectangle (10 :+ 0) (200 :+ 300)
@@ -136,8 +137,7 @@ createPage1Content basemap page = do
       return ()
 
 createPage2Content ∷ PDFReference PDFXForm → PDFReference PDFPage → PDF ()
-createPage2Content basemap page = do
-   drawWithPage page $ do
+createPage2Content basemap page = drawWithPage page $ do
       strokeColor blue
       setWidth 0.5
       fill $ Rectangle (00 :+ 10) (300 :+ 200)

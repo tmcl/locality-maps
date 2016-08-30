@@ -29,10 +29,10 @@ eachPolygon = CC.map (\(_, r, _) → pointsFromRecord r)
 
 eachPlace ∷ Conduit (a, ShpRec, b) IO [[Point]]
 eachPlace = CC.map (\(_, r, _) →
-   return . concat . andReverseTheRest . (map wrapEnds) . pointsFromRecord $ r)
+   return . concat . andReverseTheRest . map wrapEnds . pointsFromRecord $ r)
 
 andReverseTheRest ∷ [[a]] → [[a]]
-andReverseTheRest (first:rest) = first:(intersperse [last first] rest)
+andReverseTheRest (first:rest) = first:intersperse [last first] rest
 andReverseTheRest a = a
 
 pointsFromRecord ∷ ShpRec → [[Point]]
@@ -49,5 +49,5 @@ pointsFromRecContents _                = []
 wrapEnds ∷ [Point] → [Point]
 wrapEnds [] = []
 wrapEnds [a] = [a]
-wrapEnds line = (last line):line
+wrapEnds line = last line:line
 

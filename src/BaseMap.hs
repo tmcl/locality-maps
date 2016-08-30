@@ -52,7 +52,7 @@ makeBaseMap fps settings = do
    c <- mapCoast fps settings
    u <- mapUrbanAreas fps settings -- todo convert the rest to IO (Draw ())
    muzzle  settings (c >> u)
-   return $ [initialisation]
+   return [initialisation]
 
 
 fillPoints ∷ Settings → Pdf.Color → [Point] → Pdf.Draw ()
@@ -129,16 +129,17 @@ mapCoast3 settings sea = do
 mapCoast ∷ FilePaths → Settings → IO (Pdf.Draw ())
 mapCoast fps settings = do
    let bbox = boundingBox settings
-    
-   lands <- shapeSource (states fps) (Just bbox)
-      (CC.filter (not . matchFeatCode "sea")
+   let getLandShapes = CC.filter (not . matchFeatCode "sea")
         =$= eachPlace 
         =$= CC.concat
-        =$= CC.sinkList)
+        =$= CC.sinkList
+    
+   lands <- shapeSource (states fps) (Just bbox) getLandShapes
    let landPolygons = Polygons (map toClipperPolygon lands)
-   Polygons seaPolygons <- (Polygons [toClipperPolygon . bboxToPolygon $ bbox] <-> landPolygons)
+   let bboxPolygons = Polygons [toClipperPolygon . bboxToPolygon $ bbox]
+   Polygons seaPolygons <- bboxPolygons ⊖ landPolygons
    let sea = map fromClipperPolygon seaPolygons
 
    return $ mapCoast3 settings sea
 
-
+(⊖) = (<->)
