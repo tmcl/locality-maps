@@ -1,6 +1,7 @@
 module BaseMap (makeBaseMap)
 where
 
+import ClassyPrelude (traceShowId)
 import Algebra.Clipper
 import Data.ByteString (ByteString)
 import Utils
@@ -51,9 +52,8 @@ makeBaseMap fps settings = do
    initialisation <- initialiseMap settings
    c <- mapCoast fps settings
    u <- mapUrbanAreas fps settings -- todo convert the rest to IO (Draw ())
-   muzzle  settings (c >> u)
+   muzzle settings (makeXForm settings <$> [c, u])
    return [initialisation]
-
 
 fillPoints ∷ Settings → Pdf.Color → [Point] → Pdf.Draw ()
 fillPoints settings color points = do
@@ -64,6 +64,10 @@ fillPoints settings color points = do
    Pdf.fillColor color
    Pdf.fillPathEO
 
+makeXForm ∷ Settings → Pdf.Draw () → Pdf.PDF (Pdf.PDFReference Pdf.PDFXForm)
+makeXForm settings = Pdf.createPDFXForm x0 y0 x1 y1
+   where 
+      Rect x0 y0 x1 y1 = settingsRect settings
 
 mapUrbanAreas ∷ FilePaths → Settings → IO (Pdf.Draw ())
 mapUrbanAreas fps settings = do
@@ -79,17 +83,15 @@ mapUrbanAreas2 fps settings = do
       if matchUrbanAreaType "Major Urban" shape then (a, b, shape:c) else
       (a, b, c)) ([], [], []))
   bLoc <- CC.yieldMany bLoc'
-    =$= eachPlace 
+    =$= eachPolygon 
     $$ CC.sinkList
   othUrban <- CC.yieldMany othUrban'
-    =$= eachPlace
+    =$= eachPolygon
     $$ CC.sinkList
   majUrban <- CC.yieldMany majUrban'
-    =$= eachPlace
+    =$= eachPolygon
     $$ CC.sinkList
-  return (concat bLoc, concat othUrban, concat majUrban)
-
-
+  return (traceShowId (concat bLoc), concat othUrban, concat majUrban)
 
 mapUrbanAreas3 ∷ Settings 
                  → [[Point]] → [[Point]] → [[Point]] 
@@ -100,46 +102,42 @@ mapUrbanAreas3 settings bLoc othUrban majUrban = do
    mapM_ (fillPoints settings (ptc $ otherUrban settings)) othUrban
    mapM_ (fillPoints settings (ptc $ majorUrban settings)) majUrban
 
-
-
-
-muzzle ∷ Settings → Pdf.Draw () → IO ()
-muzzle settings pdf = Pdf.runPdf 
+muzzle ∷ Settings → [Pdf.PDF (Pdf.PDFReference Pdf.PDFXForm)] → IO ()
+muzzle settings drawings = Pdf.runPdf 
       "random.pdf"
       Pdf.standardDocInfo {Pdf.author="tr", Pdf.compressed = False} 
       (rectToPdfRect rect)
-      (mozzle pdf rect)
+      (mozzle drawings rect)
    where rect = settingsRect settings
 
-mozzle ∷ Pdf.Draw () → Rect → Pdf.PDF ()
-mozzle drawing rect = do 
+mozzle ∷ [Pdf.PDF (Pdf.PDFReference Pdf.PDFXForm)] → Rect → Pdf.PDF ()
+mozzle drawings rect = do 
    page ← Pdf.addPage (Just $ rectToPdfRect rect)
+   drawings' ← sequence drawings
    Pdf.drawWithPage page $ do
-      drawing
+      mapM_ Pdf.drawXObject drawings'
       Pdf.strokeColor Pdf.red
       Pdf.stroke $ Pdf.Rectangle (10 :+ 0) (200 :+ 300)
+      return ()
 
-
-
-mapCoast3 ∷ Settings → [[Point]] → Pdf.Draw ()
-mapCoast3 settings sea = do
+mapCoast3 ∷ Settings → [[Point]] → [[Point]] → Pdf.Draw ()
+mapCoast3 settings sea lands = do
    applySettings settings
    mapM_ (fillPoints settings (ptc $ water settings)) sea
+   mapM_ (fillPoints settings (ptc $ land settings)) lands
 
 mapCoast ∷ FilePaths → Settings → IO (Pdf.Draw ())
 mapCoast fps settings = do
    let bbox = boundingBox settings
-   let getLandShapes = CC.filter (not . matchFeatCode "sea")
-        =$= eachPlace 
-        =$= CC.concat
-        =$= CC.sinkList
+       getLandShapes = CC.filter (not . matchFeatCode "sea")
+                       =$= eachPlace 
+                       =$= CC.concat
+                       =$= CC.sinkList
     
    lands <- shapeSource (states fps) (Just bbox) getLandShapes
    let landPolygons = Polygons (map toClipperPolygon lands)
-   let bboxPolygons = Polygons [toClipperPolygon . bboxToPolygon $ bbox]
-   Polygons seaPolygons <- bboxPolygons ⊖ landPolygons
-   let sea = map fromClipperPolygon seaPolygons
+       bboxPolygons = Polygons [toClipperPolygon . bboxToPolygon $ bbox]
+       Polygons seaPolygons = bboxPolygons ∖ landPolygons
+       sea = map fromClipperPolygon seaPolygons
 
-   return $ mapCoast3 settings sea
-
-(⊖) = (<->)
+   return $ mapCoast3 settings sea lands

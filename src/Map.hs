@@ -38,29 +38,6 @@ instance GMTOption Orientation where
     tshow Landscape = ""
 
 
-colorTheMunicipality_ :: Pen
-colorTheMunicipality_ = Pen (Solid (Color 254 254 233)) 60
-
-withDefaultSettings :: RecBBox -> Settings
-withDefaultSettings bbox = Settings {
-    orientation = Portrait,
-    projection = if isWide then "-JM60c" else "-JM100c+",
-    land = Pen (Solid (Color 245 245 245)) 0,
-    water = Pen (Solid (Color 198 236 255)) 0,
-    riverPen = Pen (Outline (Points 1) (Color 9 120 171)) 0,
-    boundingBox = bbox,
-    majorUrban = Pen (Solid (Color 100 100 100)) 60,
-    otherUrban = Pen (Solid (Color 125 125 125)) 60,
-    boundedLocality = Pen (Solid (Color 150 150 150)) 60,
-    narrowArea = Pen (Solid (Color 100 0 0)) 60,
-    narrowLines = Pen (Outline (Points 0.4) (Color 100 0 0)) 0,
-    broadLines = Pen (Outline (Points 2.0) (Color 150 150 150)) 0,
-    broadArea = colorTheMunicipality_
-}
-   where isWide = recXMax bbox - recXMin bbox > recYMax bbox - recYMin bbox
-
-
-
 instance GMTOption Pen where
     tshow (Pen (Solid color) _) = "-G" ++ colorToText color
     tshow (Pen (Water color)  _)= "-S" ++ colorToText color

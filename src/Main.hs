@@ -126,7 +126,7 @@ localityFilePathsByState Tas fps = [(tasLocalities fps, allFilter)]
 localityFilePathsByState NT  fps = [(ntLocalities  fps, allFilter)]
 localityFilePathsByState OT  fps = [(otLocalities  fps, allFilter)]
 localityFilePathsByState ACT fps = (actLocalities fps, districtFilter)
-   : (localityFilePathsByState OT fps)
+   : localityFilePathsByState OT fps
 
 muniFileName :: Municipality -> Text
 muniFileName m = T.replace "/" "-" (mName m)
@@ -152,9 +152,9 @@ settingsFromMunicipality ∷ FilePaths → Municipality → IO (Maybe Settings)
 settingsFromMunicipality fps municipality = settingsFromRecBBox <$$> bbox
   where
     conduit ∷ Sink Shape IO (Maybe RecBBox)
-    conduit = (CC.filter (matchMunicipality municipality)
+    conduit = CC.filter (matchMunicipality municipality)
       =$= CC.map shapeToBBox
-      =$= CL.fold bigBoundingBox Nothing)
+      =$= CL.fold bigBoundingBox Nothing
     bbox = municipalitySource fps municipality Nothing conduit
 
 
@@ -182,25 +182,25 @@ multiSources yielder bbox sink = mapM go yielder
 -- TODO this and that are ~identical -localitySources +municipalitySources
 mapMunicipalities ∷ FilePaths → Settings → Pen → IO [ByteString]
 mapMunicipalities fps settings pen = concat <$>
-   (municipalitySources fps (Just $ boundingBox settings) (mapLines settings pen))
+   municipalitySources fps (Just $ boundingBox settings) (mapLines settings pen)
 
 -- TODO that and this are ~identical +localitySources -municipalitySources
 -- TODO this and that are ~identical -filter, areas/lines
 mapLocalities ∷ FilePaths → Settings → Pen → IO [ByteString]
 mapLocalities fps settings pen = concat <$>
-   (localitySources fps (Just $ boundingBox settings) (mapLines settings pen))
+   localitySources fps (Just $ boundingBox settings) (mapLines settings pen)
 
 -- TODO that and this are ~identical + filter, areas/lines
 mapLocality' ∷ FilePaths → Locality → Settings → Pen → IO [ByteString]
 mapLocality' fps locality settings pen = concat <$>
-   (localitySources fps (Just $ boundingBox settings)
-      (CC.filter (matchLocality locality) =$= mapAreas settings pen))
+   localitySources fps (Just $ boundingBox settings)
+      (CC.filter (matchLocality locality) =$= mapAreas settings pen)
 
 -- TODO that and this are ~identical + filter
 mapMunicipality ∷ FilePaths → Municipality → Settings → Pen → IO [ByteString]
 mapMunicipality fps muni settings pen =
-   (municipalitySource fps muni (Just $ boundingBox settings)
-      (CC.filter (matchMunicipality muni) =$= mapAreas settings pen))
+   municipalitySource fps muni (Just $ boundingBox settings)
+      (CC.filter (matchMunicipality muni) =$= mapAreas settings pen)
 
 -- TODO that and this are ~identical + filter
 -- stuffed naming convention
@@ -227,7 +227,7 @@ mapLakes fps settings = do
     (justWater =$= mapLines settings (riverPen settings))
   return $ filled ++ outlined
 
-(⋁) ∷ (a → Bool) → (a → Bool) → (a → Bool)
+(⋁) ∷ (a → Bool) → (a → Bool) → a → Bool
 (p ⋁ q) a = p a ∨ q a
 
 mapMunicipalityLocally ∷ FilePaths → Municipality → FilePath → IO ()
@@ -309,9 +309,9 @@ mapMunicipalitiesInState fps state out = do
 mapMunicipalityInState ∷ FilePaths → FilePath → Settings → [ByteString] → ByteString → Municipality → IO ()
 mapMunicipalityInState fps out settings baseMap finalisation muni = do
   print muni
-  let fn = (out ++ "/" ++ show (mState muni) ++ " showing " ++ T.unpack (muniFileName muni) ++ ".pdf")
+  let fn = out ++ "/" ++ show (mState muni) ++ " showing " ++ T.unpack (muniFileName muni) ++ ".pdf"
   exists <- doesFileExist fn
-  when (not exists) $ do
+  unless exists $ do
      title <- mapTitle settings (muniLongName muni)
      municipalityPoints <- mapMunicipality fps muni settings (narrowArea settings)
      writeMap

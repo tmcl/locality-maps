@@ -76,7 +76,7 @@ localitiesByMunicipality municipality municipalities localities = do
 searcher ∷ Polygons → Maybe RecBBox → ShapeSource → IO [Text]
 searcher polygons bbox yielder = makeShpDbfConduit (fst yielder) (\h1 h2 -> 
       cdt (snd yielder) bbox polygons h1 h2 
-      =$= CC.map (\(_, c) -> c)
+      =$= CC.map snd
       =$= CL.mapMaybe readChar
       $$ CC.sinkList)
 
@@ -88,25 +88,24 @@ cdt :: (Shape -> Bool) -> Maybe RecBBox -> Polygons -> Source IO ByteString -> S
 cdt shapeFilter bbox polygons shpH dbfH =
   shpDbfConduit bbox shpH dbfH
     =$= CC.filter shapeFilter
-    =$= CC.map (\l@(_, _, c) -> (toClipperPolygons l, (shapeFieldByColumnNameRule localityColumnName c)))
+    =$= CC.map (\l@(_, _, c) -> (toClipperPolygons l, shapeFieldByColumnNameRule localityColumnName c))
     =$= CL.mapMaybe (\(a, b) -> case b of
          Just v -> Just (a, v)
          Nothing -> Nothing)
-    =$= CC.mapM (addIntersection polygons)
-    =$= CC.filterM (\(_, _, c) -> return (0 /= (sizes c)))
+    =$= CC.map (addIntersection polygons)
+    =$= CC.filterM (\(_, _, c) -> return (0 /= sizes c))
     =$= CC.filterM (\(_, _, c) -> do
          let (Polygons pp) = c
-         biggest <- maximum <$> (mapM polygonArea pp)
+         biggest <- maximum <$> mapM polygonArea pp
          return $ biggest > 1e25 && length pp < 6 || biggest > 1e27)
     =$= CC.mapM (\(a, b, _) -> return (a, b))
 
 sizes :: Polygons -> Integer
 sizes (Polygons ps) = fromIntegral $ length ps
 
-addIntersection :: Polygons ->  ([(Polygon, Maybe RecBBox)], DbfField) -> IO([(Polygon, Maybe RecBBox)], DbfField, Polygons)
-addIntersection polygons (a, b) = do
-   intersec <- (polygons <@> (Polygons (fst . unzip $ a)))
-   return (a, b, intersec)
+addIntersection :: Polygons ->  ([(Polygon, Maybe RecBBox)], DbfField) -> ([(Polygon, Maybe RecBBox)], DbfField, Polygons)
+addIntersection polygons (a, b) = (a, b, intersec)
+   where intersec = polygons ∩ Polygons (fst . unzip $ a)
 
 
 -- todo what's wrong with st leonards in sydney?
