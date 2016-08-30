@@ -9,16 +9,18 @@ module Algebra.Clipper
 ,Polygons(..)
 ,(<++>)
 ,execute
-,intersection,(<@>)
-,union,(<+>)
-,difference,(<->)
-,Algebra.Clipper.xor,(<^>)
+,intersection,(<@>),(∩)
+,union,(<+>),(∪)
+,difference,(<->),(∖)
+,Algebra.Clipper.xor,(<^>),(⊖)
 ,polygonArea
 ,polygonIsClockwise
+
 ) where
 
 import Foreign
 import Foreign.C.Types
+import System.IO.Unsafe
 
 #include <clipper.hpp>
 
@@ -129,8 +131,8 @@ polygonIsClockwise poly = do
   ret <- withForeignPtr fptr (flip polygonIsClockwise_ 0)
   if ret == 0 then return False else return True
 
-execute :: ClipType -> Polygons -> Polygons -> IO Polygons
-execute cType sPolys cPolys = clipperNew >>= 
+execute :: ClipType -> Polygons -> Polygons -> Polygons
+execute cType sPolys cPolys = unsafeDupablePerformIO $ clipperNew >>= 
                               newForeignPtr clipperFree >>= 
                               flip withForeignPtr exec_
     where exec_ cPtr = do
@@ -144,25 +146,33 @@ execute cType sPolys cPolys = clipperNew >>=
             withForeignPtr rPtr (\resPtr -> clipperExecutePolys cPtr cType resPtr)
             withForeignPtr rPtr peek
 
-intersection :: Polygons -> Polygons -> IO Polygons
+intersection :: Polygons -> Polygons -> Polygons
 intersection = execute ctIntersection
-(<@>) :: Polygons -> Polygons -> IO Polygons
+(<@>) :: Polygons -> Polygons -> Polygons
 a <@> b = a `intersection` b
+(∩) :: Polygons -> Polygons -> Polygons
+(∩) = (<@>)
 
-union :: Polygons -> Polygons -> IO Polygons
+union :: Polygons -> Polygons -> Polygons
 union = execute ctUnion
-(<+>) :: Polygons -> Polygons -> IO Polygons
+(<+>) :: Polygons -> Polygons -> Polygons
 a <+> b = a `union` b
+(∪) :: Polygons -> Polygons -> Polygons
+(∪) = (<+>)
 
-difference :: Polygons -> Polygons -> IO Polygons
+difference :: Polygons -> Polygons -> Polygons
 difference = execute ctDifference
-(<->) :: Polygons -> Polygons -> IO Polygons
+(<->) :: Polygons -> Polygons -> Polygons
 a <-> b = a `difference` b
+(∖) :: Polygons -> Polygons -> Polygons
+(∖) = (<->)
 
-xor :: Polygons -> Polygons -> IO Polygons
+xor :: Polygons -> Polygons -> Polygons
 xor = execute ctXor
-(<^>) :: Polygons -> Polygons -> IO Polygons
+(<^>) :: Polygons -> Polygons -> Polygons
 a <^> b = a `Algebra.Clipper.xor` b
+(⊖) :: Polygons -> Polygons -> Polygons
+(⊖) = (<^>)
 
 --   long64 polygon_getPointX(polygon poly, int i);
 foreign import ccall "clipper.hpp polygon_getPointX"
