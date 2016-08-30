@@ -58,6 +58,7 @@ executable new
   build-depends:       base >=4.8 && <4.9,
                        base-unicode-symbols ==0.2.*,
                        bytestring ==0.10.*,
+                       readshp,
                        cassava ==0.4.*,
                        containers ==0.5.*,
                        text ==1.2.*,
@@ -76,6 +77,7 @@ executable checkspecialcases
   ghc-options: -Wall -threaded
   default-extensions: OverloadedStrings, UnicodeSyntax
   build-depends:       base >=4.8 && <4.9,
+                       base-unicode-symbols ==0.2.*,
                        bytestring ==0.10.*,
                        cassava ==0.4.*,
                        containers ==0.5.*,
@@ -114,6 +116,7 @@ executable checklocalities
                        filepath ==1.4.*,
                        vector ==0.11.*,
                        clipper,
+                       base-unicode-symbols ==0.2.*,
                        containers ==0.5.*,
                        cassava ==0.4.*,
                        readshp
@@ -149,6 +152,7 @@ executable localities
                        process ==1.2.*,
                        text ==1.2.*,
                        bytestring ==0.10.*,
+                       base-unicode-symbols ==0.2.*,
                        binary ==0.7.*,
                        blaze-builder ==0.4.*,
                        transformers ==0.4.*,
@@ -161,6 +165,7 @@ executable localities
                        containers ==0.5.*,
                        directory ==1.2.*,
                        cassava ==0.4.*,
+                       HPDF ==1.4.*,
                        readshp
 
   -- Directories containing source files.

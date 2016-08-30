@@ -2,9 +2,12 @@ module PolygonReduce (reduce, itWorks)
 where
 
 import Prelude.Unicode
-import Data.Foldable
 import Data.Monoid
 import Data.Complex
+import Data.Foldable
+import Data.Vector hiding (length, foldl', all)
+import Prelude (Show, show, error, (+), (>), ($), (<), (*), (^^), sqrt, abs, (-), (/), Int, Double, Bool(..))
+import Control.Applicative
 
 type Point = Complex Double
 
@@ -17,69 +20,33 @@ perpendicularDistance (pX :+ pY) (p1x :+ p1y) (p2x :+ p2y) =
       slope = (p2y - p1y) / (p2x - p1x)
       intercept = p1y - (slope * p1x)
 
-reduce ∷ Double → [Point] → [Point]
+reduce ∷ Double → Vector Point → Vector Point
 reduce 0 points = points
-reduce ε points = if length points< 3 then points else reducedPoints
+reduce ε points = if length points < 3 then points else reducedPoints
    where
       firstPoint = head points
       lastPoint = last points
-      (dist, pre, centre, post) = foldl' (maxPerpendicularDistance firstPoint lastPoint) (0, mempty, Nothing, mempty) points
+      (dist, ix, _) = foldl' (maxPerpendicularDistance firstPoint lastPoint) (0, 0, 0) points
+      pre = take (1+ix) points
+      post = drop ix points
       reducedPoints = if dist > ε 
-         then mappend r1 (tail r2)
+         then mappend r1 (drop 1 r2)
          else pure firstPoint <> pure lastPoint
-      r1 = reduce ε (combine pre centre)
-      r2 = reduce ε (precombine centre post)
+      r1 = reduce ε pre
+      r2 = reduce ε post
 
 maxPerpendicularDistance ∷ Point → Point → 
-   (Double, [Point], Maybe Point, [Point]) → Point → (Double, [Point], Maybe Point, [Point])
-maxPerpendicularDistance firstPoint lastPoint (dist, pre, it, post) point = 
+   (Double, Int, Int) → Point → (Double, Int, Int)
+maxPerpendicularDistance firstPoint lastPoint (dist, ix, counter) point = 
    let cDist = perpendicularDistance point firstPoint lastPoint in
    if cDist > dist
-   then (cDist, (combine pre it) <> post, Just point, mempty)
-   else (dist, pre, it, post <> pure point)
-
-combine ∷ (Applicative f, Monoid (f a)) ⇒ f a → Maybe a → f a
-combine a Nothing = a
-combine a (Just b) = a <> pure b
-
-precombine ∷ (Applicative f, Monoid (f a)) ⇒ Maybe a → f a → f a
-precombine Nothing a = a
-precombine (Just a) b = pure a <> b
-
-
-{-
-function DouglasPeucker(PointList[], epsilon)
-    // Find the point with the maximum distance
-    dmax = 0
-    index = 0
-    end = length(PointList)
-    for i = 2 to ( end - 1) {
-        d = perpendicularDistance(PointList[i], Line(PointList[1], PointList[end])) 
-        if ( d > dmax ) {
-            index = i
-            dmax = d
-        }
-    }
-    // If max distance is greater than epsilon, recursively simplify
-    if ( dmax > epsilon ) {
-        // Recursive call
-        recResults1[] = DouglasPeucker(PointList[1...index], epsilon)
-        recResults2[] = DouglasPeucker(PointList[index...end], epsilon)
- 
-        // Build the result list
-        ResultList[] = {recResults1[1...length(recResults1)-1], recResults2[1...length(recResults2)]}
-    } else {
-        ResultList[] = {PointList[1], PointList[end]}
-    }
-    // Return the result
-    return ResultList[]
-end
--}
+   then (cDist, counter, counter + 1)
+   else (dist, ix, counter + 1)
 
 
 test ∷ TestCase → Bool
-test testcase = let result = reduce (testEps testcase) (original testcase) in
-   case (expected testcase) ≡ result of
+test testcase = let result = reduce (testEps testcase) (fromList $ original testcase) in
+   case fromList (expected testcase) ≡ result of
       True → True
       False → error (show testcase ⧺ " yielded " ⧺ show result)
       

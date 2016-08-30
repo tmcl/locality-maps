@@ -1,5 +1,6 @@
 module FindLocalities where
 
+import Data.Complex
 import Algebra.Clipper
 import Geometry.Shapefile.Conduit
 import Geometry.Shapefile.Internal (Point)
@@ -52,7 +53,7 @@ recContentsPolygons _ = []
 toClipperPolygon :: [Point] -> Polygon
 toClipperPolygon p = Polygon (map toClipperPoint p)
 toClipperPoint :: Point -> IntPoint
-toClipperPoint (x, y) = IntPoint (floor $ x*bigNum) (floor $ y*bigNum)
+toClipperPoint (x :+ y) = IntPoint (floor $ x*bigNum) (floor $ y*bigNum)
 
 bigNum :: Double
 bigNum = 2^(63-8::Integer)
@@ -61,7 +62,7 @@ fromClipperPolygon :: Polygon -> [Point]
 fromClipperPolygon (Polygon p) = map fromClipperPoint p
 fromClipperPoint :: IntPoint -> Point
 fromClipperPoint (IntPoint x y) = 
-   (fromIntegral x/bigNum, fromIntegral y/bigNum)
+   fromIntegral x/bigNum :+ fromIntegral y/bigNum
 
 localitiesByMunicipality :: T.Text -> FilePath -> Yielder -> IO (Set Locality)
 localitiesByMunicipality municipality municipalities localities = do
@@ -106,3 +107,6 @@ addIntersection :: Polygons ->  ([(Polygon, Maybe RecBBox)], DbfField) -> IO([(P
 addIntersection polygons (a, b) = do
    intersec <- (polygons <@> (Polygons (fst . unzip $ a)))
    return (a, b, intersec)
+
+
+-- todo what's wrong with st leonards in sydney?

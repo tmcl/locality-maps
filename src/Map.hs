@@ -8,10 +8,11 @@ module Map
   ,mapPoints3
   ,Settings(..)
   ,Color(..)
-  ,Pen(..), colorTheMunicipality_
-    ,Width(..), withDefaultSettings)
+  ,Pen(..), colorTheMunicipality_, penColor
+  ,Width(..), withDefaultSettings)
   where
 
+import Data.Complex
 import Data.List
 import Geometry.Shapefile.Types
 import System.Process
@@ -24,6 +25,8 @@ import qualified Data.Conduit.Combinators as CC
 import Data.Conduit
 import Control.Monad.IO.Class
 import qualified Data.Vector as V
+
+type Point = Complex Double
 
 class GMTOption a where
     tshow :: a -> String
@@ -65,7 +68,7 @@ data Settings = Settings {
 colorTheMunicipality_ :: Pen
 colorTheMunicipality_ = Pen (Solid (Color 254 254 233)) 60
 
-withDefaultSettings :: RecBBox  -> Settings
+withDefaultSettings :: RecBBox -> Settings
 withDefaultSettings bbox = Settings {
     orientation = Portrait,
     projection = if isWide then "-JM60c" else "-JM100c+",
@@ -87,7 +90,15 @@ newtype Width = Points Double
 
 data Color = Color { colorRed :: Int, colorBlue :: Int, colorGreen :: Int }
 
-data Pen = Pen WritingStyle Int
+data Pen = Pen { penWritingStyle ∷ WritingStyle, penAlpha ∷ Int }
+
+penColor ∷ Pen → Color
+penColor = writingStyleColor . penWritingStyle
+
+writingStyleColor ∷ WritingStyle → Color
+writingStyleColor (Solid c) = c
+writingStyleColor (Water c) = c
+writingStyleColor (Outline _ c) = c
 
 data WritingStyle
     = Solid Color
@@ -104,10 +115,8 @@ transparency (Pen _ t) = t
 colorToText :: Color -> String
 colorToText (Color red green blue) = intercalate "/" (map show [red, green, blue])
 
-type Point = (Double, Double)
-
 pointToPstPoint :: Point -> ByteString
-pointToPstPoint (easting, westing) = B8.pack $ show easting ++ " " ++ show westing
+pointToPstPoint (easting :+ westing) = B8.pack $ show easting ++ " " ++ show westing
 
 polygonToPstPoints :: [Point] -> ByteString
 polygonToPstPoints pts = BS.intercalate "\n" (map pointToPstPoint pts)
