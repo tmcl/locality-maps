@@ -23,13 +23,13 @@ data Shp = Shp {
 }
 
 embiggenBoundingBox ∷ RecBBox → RecBBox
-embiggenBoundingBox (RecBBox ll ur) = RecBBox (ll+buffer) (ur+buffer)
+embiggenBoundingBox (RecBBox ll ur) = RecBBox (ll-buffer) (ur+buffer)
    where
       buffer = (ur - ll) * 0.1
 
 mkShape ∷ Vector (Double, Double) → Shp
 mkShape points = let points' = toPoint <$> points in Shp {
-   shpBBox = (embiggenBoundingBox $ bboxFromPoints points'),
+   shpBBox = embiggenBoundingBox $ bboxFromPoints points',
    shpPoints = points'
 }
 
@@ -49,9 +49,9 @@ fitPointInBoxˀ Nothing p = Just $ RecBBox p p
 fitPointInBoxˀ (Just b) p = Just $ fitPointInBox b p
 
 fitPointInBox ∷ RecBBox → Point → RecBBox
-fitPointInBox box point@(x:+y) = if (box `fits` point) then box else box {
-      lowerLeft = (min x (recXMin box)) :+ (min y (recYMin box)),
-      upperRight = (max x (recXMax box)) :+ (max y (recYMax box))
+fitPointInBox box point@(x:+y) = if box `fits` point then box else box {
+      lowerLeft = min x (recXMin box) :+ min y (recYMin box),
+      upperRight = max x (recXMax box) :+ max y (recYMax box)
 }
 
 fits ∷ RecBBox → Point → Bool

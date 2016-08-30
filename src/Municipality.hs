@@ -6,9 +6,9 @@ import Types
 
 -- todo this should be based on a database
 muniLongName :: Municipality -> Text
-muniLongName m = toTitle . transform . muniCouncilName $ m
+muniLongName m = toTitle . transform . mCouncilName $ m
    where
-      transform = case muniState m of
+      transform = case mState m of
          Vic -> id
          Tas -> stripCouncil
          Qld -> replaceRegional

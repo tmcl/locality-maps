@@ -1,31 +1,26 @@
 module Types
 where
 
+import Prelude.Unicode
 import Data.Text (Text)
 import Data.Csv
 import Control.Monad
 
 data Municipality = Municipality {
-   misState :: State,
-   muniCouncilName :: Text,
-   misName :: MunicipalityShortName
+   mState :: State,
+   mCouncilName :: Text,
+   mName :: MunicipalityShortName
 }
    deriving (Show, Read)
 
 instance Eq Municipality where
-   a == b = (misState a) == (misState b)
+   a == b = (mState a) ≡ (mState b) ∧ (mName a) ≡ (mName b)
 
 instance Ord Municipality where
-   compare a b = let states = compare (misState a) (misState b) in
+   compare a b = let states = compare (mState a) (mState b) in
       case states of
-         EQ -> compare (misName a) (misName b)
+         EQ -> compare (mName a) (mName b)
          _ -> states
-
-muniState ∷ Municipality → State
-muniState = misState
-
-muniName ∷ Municipality → MunicipalityShortName
-muniName = misName
 
 type MunicipalityShortName = Text
 type Locality = Text

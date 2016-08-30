@@ -1,16 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 
-module Map
-  (closeMap
-  ,mapCoast
-  ,initialiseMap
-  ,mapTitle
-  ,mapPoints3
-  ,Settings(..)
-  ,Color(..)
-  ,Pen(..), colorTheMunicipality_, penColor
-  ,Width(..), withDefaultSettings)
-  where
+module Map where
 
 import Data.Complex
 import Data.List
@@ -25,8 +15,7 @@ import qualified Data.Conduit.Combinators as CC
 import Data.Conduit
 import Control.Monad.IO.Class
 import qualified Data.Vector as V
-
-type Point = Complex Double
+import Settings
 
 class GMTOption a where
     tshow :: a -> String
@@ -44,26 +33,10 @@ instance GMTOption RecBBox where
                       "/",
                       show $ recYMax b]
 
-data Orientation = Portrait | Landscape
 instance GMTOption Orientation where
     tshow Portrait = "-P"
     tshow Landscape = ""
 
-data Settings = Settings {
-    orientation :: Orientation,
-    projection :: T.Text,
-    land :: Pen,
-    water :: Pen,
-    riverPen :: Pen,
-    boundingBox :: RecBBox,
-    majorUrban :: Pen,
-    otherUrban :: Pen,
-    boundedLocality :: Pen,
-    broadArea :: Pen,
-    broadLines :: Pen,
-    narrowArea :: Pen,
-    narrowLines :: Pen
-}
 
 colorTheMunicipality_ :: Pen
 colorTheMunicipality_ = Pen (Solid (Color 254 254 233)) 60
@@ -86,28 +59,13 @@ withDefaultSettings bbox = Settings {
 }
    where isWide = recXMax bbox - recXMin bbox > recYMax bbox - recYMin bbox
 
-newtype Width = Points Double
 
-data Color = Color { colorRed :: Int, colorBlue :: Int, colorGreen :: Int }
 
-data Pen = Pen { penWritingStyle ∷ WritingStyle, penAlpha ∷ Int }
-
-penColor ∷ Pen → Color
-penColor = writingStyleColor . penWritingStyle
-
-writingStyleColor ∷ WritingStyle → Color
-writingStyleColor (Solid c) = c
-writingStyleColor (Water c) = c
-writingStyleColor (Outline _ c) = c
-
-data WritingStyle
-    = Solid Color
-    | Water Color
-    | Outline Width Color
 instance GMTOption Pen where
     tshow (Pen (Solid color) _) = "-G" ++ colorToText color
     tshow (Pen (Water color)  _)= "-S" ++ colorToText color
     tshow (Pen (Outline (Points pt) color)  _)= concat ["-W", show pt, "p,", colorToText color]
+
 
 transparency :: Pen -> Int
 transparency (Pen _ t) = t
@@ -186,3 +144,6 @@ mapCoast settings = inproc "gmt" [
     ] BS.empty
     where
         setting getter = tshow . getter $ settings
+
+
+
