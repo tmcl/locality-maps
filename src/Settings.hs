@@ -27,7 +27,7 @@ type Point = Complex Double
    
 
 data Settings = Settings {
-    settingsEpsilon ∷ Double,
+    settingsEpsilon ∷ Maybe Double,
     settingsMatrix ∷ Pdf.Matrix,
     settingsRect ∷ Rect,
     orientation :: Orientation,
@@ -61,7 +61,7 @@ withDefaultSettings bbox = Settings {
     broadLines = Pen (Outline (Points 2.0) (Color 150 150 150)) 0,
     broadArea = colorTheMunicipality_,
     settingsMatrix = matrix,
-    settingsEpsilon = invertScale matrix 0.25, 
+    settingsEpsilon = Just $ invertScale matrix 0.25, 
     settingsRect = rect
 }
    where 

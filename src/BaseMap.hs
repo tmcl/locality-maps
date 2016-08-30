@@ -1,9 +1,8 @@
-module BaseMap (makeBaseMap)
+module BaseMap (makeBaseMap, XForm, makeXForm, fillPoints, applySettings, drawPoints, mapCoast, mapUrbanAreas)
 where
 
 import ClassyPrelude (traceShowId)
 import Algebra.Clipper
-import Data.ByteString (ByteString)
 import Utils
 import Data.Complex
 import qualified Graphics.PDF as Pdf
@@ -16,7 +15,6 @@ import FindLocalities (toClipperPolygon, fromClipperPolygon)
 
 import Geometry.Shapefile.Conduit 
 
-import Map (initialiseMap)
 import NewMap
 import Settings
 import PolygonReduce
@@ -45,32 +43,51 @@ applySettings = Pdf.applyMatrix . settingsMatrix
 matchUrbanAreaType ∷ Text → Shape → Bool
 matchUrbanAreaType = (`matchTextDbfField` (== "SOS_NAME11"))
 
-
- 
-makeBaseMap ∷ FilePaths → Settings → IO [ByteString]
+makeBaseMap ∷ FilePaths → Settings → IO [Pdf.PDF XForm]
 makeBaseMap fps settings = do
-   initialisation <- initialiseMap settings
-   c <- mapCoast fps settings
-   u <- mapUrbanAreas fps settings -- todo convert the rest to IO (Draw ())
-   muzzle settings (makeXForm settings <$> [c, u])
-   return [initialisation]
+   c <- drawCoast fps settings
+   u <- drawUrbanAreas fps settings -- todo convert the rest to IO (Draw ())
+   return $ makeXForm settings <$> [c, u]
+
+mapCoast ∷ FilePaths → Settings → IO (Pdf.PDF XForm)
+mapCoast fps settings = (return . makeXForm settings) =<< drawCoast fps settings
+mapUrbanAreas ∷ FilePaths → Settings → IO (Pdf.PDF XForm)
+mapUrbanAreas fps settings = (return . makeXForm settings) =<< drawUrbanAreas fps settings
 
 fillPoints ∷ Settings → Pdf.Color → [Point] → Pdf.Draw ()
 fillPoints settings color points = do
-   let bbox = boundingBox settings
-       epsilon = settingsEpsilon settings
-   Pdf.addPolygonToPath . V.toList . reduce epsilon . clipPath bbox . V.fromList 
-      $ points
+   preparePoints settings points
    Pdf.fillColor color
    Pdf.fillPathEO
 
-makeXForm ∷ Settings → Pdf.Draw () → Pdf.PDF (Pdf.PDFReference Pdf.PDFXForm)
+drawPoints ∷ Settings → Pdf.Color → [Point] → Pdf.Draw ()
+drawPoints settings color points = do
+   preparePoints settings points
+   whenˀ $ Pdf.setWidth . (4 *) <$> settingsEpsilon settings
+   Pdf.strokeColor color
+   Pdf.strokePath
+
+whenˀ ∷ Monad m ⇒  Maybe (m ()) → m ()
+whenˀ (Just foo) = foo
+whenˀ Nothing = return ()
+
+preparePoints ∷ Settings → [Point] → Pdf.Draw ()
+preparePoints settings points = do
+   let bbox = boundingBox settings
+       reducer = maybe id reduce (settingsEpsilon settings)
+   Pdf.addPolygonToPath . V.toList . reducer . clipPath bbox . V.fromList 
+      $ points
+
+
+type XForm = Pdf.PDFReference Pdf.PDFXForm
+
+makeXForm ∷ Settings → Pdf.Draw () → Pdf.PDF XForm
 makeXForm settings = Pdf.createPDFXForm x0 y0 x1 y1
    where 
       Rect x0 y0 x1 y1 = settingsRect settings
 
-mapUrbanAreas ∷ FilePaths → Settings → IO (Pdf.Draw ())
-mapUrbanAreas fps settings = do
+drawUrbanAreas ∷ FilePaths → Settings → IO (Pdf.Draw ())
+drawUrbanAreas fps settings = do
    (b1, o1, m1) ← mapUrbanAreas2 fps settings
    return $ mapUrbanAreas3 settings b1 o1 m1
 
@@ -102,23 +119,8 @@ mapUrbanAreas3 settings bLoc othUrban majUrban = do
    mapM_ (fillPoints settings (ptc $ otherUrban settings)) othUrban
    mapM_ (fillPoints settings (ptc $ majorUrban settings)) majUrban
 
-muzzle ∷ Settings → [Pdf.PDF (Pdf.PDFReference Pdf.PDFXForm)] → IO ()
-muzzle settings drawings = Pdf.runPdf 
-      "random.pdf"
-      Pdf.standardDocInfo {Pdf.author="tr", Pdf.compressed = False} 
-      (rectToPdfRect rect)
-      (mozzle drawings rect)
-   where rect = settingsRect settings
-
-mozzle ∷ [Pdf.PDF (Pdf.PDFReference Pdf.PDFXForm)] → Rect → Pdf.PDF ()
-mozzle drawings rect = do 
-   page ← Pdf.addPage (Just $ rectToPdfRect rect)
-   drawings' ← sequence drawings
-   Pdf.drawWithPage page $ do
-      mapM_ Pdf.drawXObject drawings'
-      Pdf.strokeColor Pdf.red
-      Pdf.stroke $ Pdf.Rectangle (10 :+ 0) (200 :+ 300)
-      return ()
+{-
+-}
 
 mapCoast3 ∷ Settings → [[Point]] → [[Point]] → Pdf.Draw ()
 mapCoast3 settings sea lands = do
@@ -126,8 +128,8 @@ mapCoast3 settings sea lands = do
    mapM_ (fillPoints settings (ptc $ water settings)) sea
    mapM_ (fillPoints settings (ptc $ land settings)) lands
 
-mapCoast ∷ FilePaths → Settings → IO (Pdf.Draw ())
-mapCoast fps settings = do
+drawCoast ∷ FilePaths → Settings → IO (Pdf.Draw ())
+drawCoast fps settings = do
    let bbox = boundingBox settings
        getLandShapes = CC.filter (not . matchFeatCode "sea")
                        =$= eachPlace 

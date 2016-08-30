@@ -78,7 +78,7 @@ pageFromBBox box = Rect 0 0 maxX maxY
    where
       width = recXMax box - recXMin box
       height = recYMax box - recYMin box
-      multiplier = if width > height then 600 / width else 600 / height
+      multiplier = if width > height then 2000 / width else 2000 / height
       maxX = width * multiplier
       maxY = height * multiplier
 

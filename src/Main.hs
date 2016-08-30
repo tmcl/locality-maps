@@ -1,6 +1,10 @@
 {-# LANGUAGE Rank2Types #-}
+{-# OPTIONS_GHC -fno-warn-unused-matches -fno-warn-unused-binds #-}
+
 module Main (main)
 where
+
+import qualified Graphics.PDF as Pdf
 
 import UpdatedMapper
 import Prelude.Unicode
@@ -23,7 +27,7 @@ import           System.Environment
 import           System.Process
 import           FindLocalities hiding (lgaColumnName)
 import Data.List
-import Utils
+import Utils (bigBoundingBox, withFiles, FilePaths(..))
 import System.Directory
 import Control.Monad
 
@@ -179,10 +183,28 @@ multiSources yielder bbox sink = mapM go yielder
   where
     go (filePath, filter') = shapeSource filePath bbox (CC.filter filter' =$= sink)
 
+-- TODO mapMunicipality and this are ~identical + filter
+-- stuffed naming convention
+mapStateLocally ∷ FilePaths → Settings → State → Pen → IO (Pdf.PDF XForm)
+mapStateLocally fps settings state pen = do
+  points ← concat <$> shapeSource (states fps) (Just $ boundingBox settings)
+    (CC.filter (matchState state) =$= eachPlace =$= CC.sinkList)
+  return $ makeXForm settings (applySettings settings >> mapM_ (fillPoints settings (ptc pen)) points)
+
+-- TODO mapLocality' and this are ~identical + filter
+mapMunicipality ∷ FilePaths → Municipality → Settings → Pen → IO (Pdf.PDF XForm)
+mapMunicipality fps muni settings pen = do
+  points ← concat <$> municipalitySource fps muni (Just $ boundingBox settings)
+    (CC.filter (matchMunicipality muni) =$= eachPlace =$= CC.sinkList)
+  return $ makeXForm settings (applySettings settings >> mapM_ (fillPoints settings (ptc pen)) points)
+
+
 -- TODO this and that are ~identical -localitySources +municipalitySources
-mapMunicipalities ∷ FilePaths → Settings → Pen → IO [ByteString]
-mapMunicipalities fps settings pen = concat <$>
-   municipalitySources fps (Just $ boundingBox settings) (mapLines settings pen)
+mapMunicipalities ∷ FilePaths → Settings → Pen → IO (Pdf.PDF XForm)
+mapMunicipalities fps settings pen = do
+   foo ← concat . concat <$> municipalitySources fps (Just $ boundingBox settings) (eachPolygon =$= CC.sinkList)
+   return $ makeXForm settings (applySettings settings >> mapM_ (drawPoints settings (ptc pen)) foo)
+   
 
 -- TODO that and this are ~identical +localitySources -municipalitySources
 -- TODO this and that are ~identical -filter, areas/lines
@@ -195,19 +217,6 @@ mapLocality' ∷ FilePaths → Locality → Settings → Pen → IO [ByteString]
 mapLocality' fps locality settings pen = concat <$>
    localitySources fps (Just $ boundingBox settings)
       (CC.filter (matchLocality locality) =$= mapAreas settings pen)
-
--- TODO that and this are ~identical + filter
-mapMunicipality ∷ FilePaths → Municipality → Settings → Pen → IO [ByteString]
-mapMunicipality fps muni settings pen =
-   municipalitySource fps muni (Just $ boundingBox settings)
-      (CC.filter (matchMunicipality muni) =$= mapAreas settings pen)
-
--- TODO that and this are ~identical + filter
--- stuffed naming convention
-mapStateLocally ∷ FilePaths → Settings → State → Pen → IO [ByteString]
-mapStateLocally fps settings state pen =
-  shapeSource (states fps) (Just $ boundingBox settings)
-    (CC.filter (matchState state) =$= mapAreas settings pen)
 
 mapAreas ∷ Settings → Pen → Sink Shape IO [ByteString]
 mapAreas settings pen = eachPlace =$= mapPoints3 settings pen =$= CC.sinkList
@@ -230,6 +239,7 @@ mapLakes fps settings = do
 (⋁) ∷ (a → Bool) → (a → Bool) → a → Bool
 (p ⋁ q) a = p a ∨ q a
 
+{-
 mapMunicipalityLocally ∷ FilePaths → Municipality → FilePath → IO ()
 mapMunicipalityLocally fps muni out = do
   Just settings <- settingsFromMunicipality fps muni
@@ -237,16 +247,17 @@ mapMunicipalityLocally fps muni out = do
   baseMap <- makeBaseMap fps settings
   rivers' <- mapRivers fps settings
   lakes' <- mapLakes fps settings
-  munisPoints <- mapMunicipalities fps settings (broadLines settings)
+  -- munisPoints <- mapMunicipalities fps settings (broadLines settings) todo reenable
   muniPoints <- mapMunicipality fps muni settings (broadArea settings)
   localitiesPoints <- mapLocalities fps settings (narrowLines settings)
   finalisation <- closeMap settings
-  let base = baseMap ++ rivers'  ++ lakes'  ++ munisPoints ++ muniPoints ++ localitiesPoints
+  let base = baseMap ++ rivers'  ++ lakes'  {-++ munisPoints-} ++ muniPoints ++ localitiesPoints
   writeMap
     (base ++ [title, finalisation])
     (out ++ "/" ++ T.unpack (muniFileName muni) ++ " (" ++ show (mState muni) ++ ").pdf")
   localities <- localitiesByMunicipality (mName muni) (municipalityFilePathByMunicipality fps muni) (localityFilePathsByState (mState muni) fps)
   mapM_ (\l → mapLocalityInMunicipality fps (out ++ "/" ++ T.unpack l ++ " in " ++ T.unpack (muniFileName muni) ++ " and "  ++ show (mState muni) ++ ".pdf") settings base finalisation muni l) localities
+-}
 
 
 --
@@ -287,12 +298,25 @@ mapCity fps out (ident, city) = do
      (out ++ "/" ++ "city " ++ show ident ++ ".pdf")
 -}
 
+muzzle ∷ Settings → FilePath → Pdf.PDF () → IO ()
+muzzle settings out = Pdf.runPdf 
+      out
+      Pdf.standardDocInfo {Pdf.author="tr", Pdf.compressed = False} 
+      (rectToPdfRect rect)
+   where rect = settingsRect settings
+
+mozzle ∷ [Pdf.PDF XForm] → Rect → Pdf.PDF ()
+mozzle drawings rect = do 
+   page ← Pdf.addPage (Just $ rectToPdfRect rect)
+   drawings' ← sequence drawings
+   Pdf.drawWithPage page $ mapM_ Pdf.drawXObject drawings'
+
 mapMunicipalitiesInState ∷ FilePaths → State → FilePath → IO ()
 mapMunicipalitiesInState fps state out = do
   Just settings <- settingsFromState fps state
   traceM $ show (boundingBox settings)
-  baseMap <- makeBaseMap fps settings
-  finalisation <- closeMap settings
+  coastPoints <- mapCoast fps settings
+  urbanPoints <- mapUrbanAreas fps settings
   traceM "state points"
   statePoints <- mapStateLocally fps settings state (broadArea settings)
   traceM "munis points"
@@ -303,21 +327,20 @@ mapMunicipalitiesInState fps state out = do
   traceM "onward and upward!"
   traceM $ show munis
   --let munis = S.filter (\l → any (`T.isInfixOf` mName l) ["KING"] ) munis'
-  mapM_ (mapMunicipalityInState fps out settings (baseMap ++ statePoints ++ munisPoints) finalisation) munis
+  let points = [coastPoints, statePoints, urbanPoints, munisPoints]
+  mapM_ (mapMunicipalityInState fps out settings points) munis
   traceM "done"
 
-mapMunicipalityInState ∷ FilePaths → FilePath → Settings → [ByteString] → ByteString → Municipality → IO ()
-mapMunicipalityInState fps out settings baseMap finalisation muni = do
+mapMunicipalityInState ∷ FilePaths → FilePath → Settings → [Pdf.PDF XForm] → Municipality → IO ()
+mapMunicipalityInState fps out settings drawings muni = do
   print muni
   let fn = out ++ "/" ++ show (mState muni) ++ " showing " ++ T.unpack (muniFileName muni) ++ ".pdf"
   exists <- doesFileExist fn
   unless exists $ do
-     title <- mapTitle settings (muniLongName muni)
-     municipalityPoints <- mapMunicipality fps muni settings (narrowArea settings)
-     writeMap
-       (baseMap ++ municipalityPoints ++ [title, finalisation])
-       fn
-     mapMunicipalityLocally fps muni out
+     -- title <- mapTitle settings (muniLongName muni)
+     municipalityPoints ← mapMunicipality fps muni settings (narrowArea settings)
+     muzzle settings fn (mozzle (drawings⧺[municipalityPoints]) (settingsRect settings))
+     -- mapMunicipalityLocally fps muni out TODO resume this with the new structure
 
 mapLocalityInMunicipality ∷ FilePaths → FilePath → Settings → [ByteString] → ByteString → Municipality → Locality → IO ()
 mapLocalityInMunicipality fps out settings baseMap finalisation muni locality = do
