@@ -1,6 +1,7 @@
-module Settings
+module Settings (penColor, writingStyleColor, colorToColor, SettingsT, withDefaultSettings, ptc, Orientation(..), Width(..), Point, Color(..), Settings(..), Pen(..), WritingStyle(..), module Control.Monad.Trans.Reader)
 where
 
+import Control.Monad.Trans.Reader
 import Data.Complex
 import Geometry.Shapefile.Types (RecBBox(..))
 import qualified Graphics.PDF as Pdf
@@ -24,7 +25,8 @@ colorToColor (Color r g b) = Pdf.Rgb (toRatio r) (toRatio g) (toRatio b)
    where toRatio n = fromIntegral n / 255
 
 type Point = Complex Double
-   
+
+type SettingsT = ReaderT Settings
 
 data Settings = Settings {
     settingsEpsilon ∷ Maybe Double,
@@ -53,9 +55,9 @@ withDefaultSettings bbox = Settings {
     water = Pen (Solid (Color 198 236 255)) 0,
     riverPen = Pen (Outline (Points 1) (Color 9 120 171)) 0,
     boundingBox = bbox,
-    majorUrban = Pen (Solid (Color 100 100 100)) 60,
-    otherUrban = Pen (Solid (Color 125 125 125)) 60,
-    boundedLocality = Pen (Solid (Color 150 150 150)) 60,
+    majorUrban = Pen (Solid (Color 100 100 100)) 40,
+    otherUrban = Pen (Solid (Color 125 125 125)) 40,
+    boundedLocality = Pen (Solid (Color 150 150 150)) 40,
     narrowArea = Pen (Solid (Color 100 0 0)) 60,
     narrowLines = Pen (Outline (Points 0.4) (Color 100 0 0)) 0,
     broadLines = Pen (Outline (Points 2.0) (Color 150 150 150)) 0,
@@ -71,7 +73,7 @@ withDefaultSettings bbox = Settings {
 
 
 colorTheMunicipality_ :: Pen
-colorTheMunicipality_ = Pen (Solid (Color 254 254 233)) 60
+colorTheMunicipality_ = Pen (Solid (Color 254 254 233)) 20
 
 
 data Orientation = Portrait | Landscape

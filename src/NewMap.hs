@@ -22,10 +22,13 @@ data Shp = Shp {
    shpPoints ∷ Vector Point
 }
 
-embiggenBoundingBox ∷ RecBBox → RecBBox
-embiggenBoundingBox (RecBBox ll ur) = RecBBox (ll-buffer) (ur+buffer)
+resizeBoundingBox ∷ Point → RecBBox → RecBBox
+resizeBoundingBox size (RecBBox ll ur) = RecBBox (ll-buffer) (ur+buffer)
    where
-      buffer = (ur - ll) * 0.1
+      buffer = (ur - ll) * size
+
+embiggenBoundingBox ∷ RecBBox → RecBBox
+embiggenBoundingBox = resizeBoundingBox 0.1
 
 mkShape ∷ Vector (Double, Double) → Shp
 mkShape points = let points' = toPoint <$> points in Shp {

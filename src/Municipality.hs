@@ -6,7 +6,7 @@ import Types
 
 -- todo this should be based on a database
 muniLongName :: Municipality -> Text
-muniLongName m = toTitle . transform . mCouncilName $ m
+muniLongName m = fixMc . toTitle . transform . mCouncilName $ m
    where
       transform = case mState m of
          Vic -> id
@@ -18,4 +18,7 @@ stripCouncil :: Text -> Text
 stripCouncil = replace " COUNCIL" ""
 
 replaceRegional :: Text -> Text
-replaceRegional = replace " REGIONAL" "REGION"
+replaceRegional = replace " REGIONAL" " REGION"
+
+fixMc ∷ Text → Text
+fixMc = replace "Mckinlay" "McKinlay"

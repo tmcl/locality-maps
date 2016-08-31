@@ -164,6 +164,7 @@ executable localities
                        clipper,
                        containers ==0.5.*,
                        directory ==1.2.*,
+                       mtl,
                        cassava ==0.4.*,
                        HPDF ==1.4.*,
                        readshp
