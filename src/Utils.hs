@@ -12,7 +12,7 @@ bigBoundingBox (Just b1) (Just b2) = Just $ bigBoundingBox' b1 b2
 
 bigBoundingBox' ∷ RecBBox → RecBBox → RecBBox
 bigBoundingBox' (RecBBox (x0a :+ y0a) (x1a :+ y1a)) (RecBBox (x0b :+ y0b) (x1b :+ y1b))
-   = RecBBox ((min x0a x0b) :+ (min y0a y0b)) ((max x1a x1b) :+ (max y1a y1b))
+   = RecBBox (min x0a x0b :+ min y0a y0b) (max x1a x1b :+ max y1a y1b)
 
 data FilePaths = FilePaths {
    states            ∷ FilePath,
@@ -42,7 +42,7 @@ data FilePaths = FilePaths {
 withFiles ∷ FilePath → FilePaths
 withFiles sourceFolder = FilePaths {
     states            = sourceFolder ⧺ "/cth/GEODATA COAST 100k/australia/cstauscd_r.shp",
-    nswMunicipalities = sourceFolder ⧺ "/cth/NSWLGAPOLYGON/NSW_LGA_POLYGON_shp.shp",
+    nswMunicipalities = sourceFolder ⧺ "/cth/nswlgapolygonshp/NSW_LGA_POLYGON_shp.shp",
     vicMunicipalities = sourceFolder ⧺ "/cth/VICLGAPOLYGON/VIC_LGA_POLYGON_shp.shp",
     qldMunicipalities = sourceFolder ⧺ "/cth/QLDLGAPOLYGON/QLD_LGA_POLYGON_shp.shp",
     waMunicipalities  = sourceFolder ⧺ "/cth/WALGAPOLYGON/WA_LGA_POLYGON_shp.shp",

@@ -1,5 +1,6 @@
 module EachMap (fillCoordinates, mapStateLocally, mapFineLines) where
 
+import Unicode
 import UpdatedMapper
 import qualified Data.Conduit.Combinators as CC
 import Data.Conduit as CC
@@ -33,9 +34,10 @@ outlineCoordinates pen points = do
   mapM_ (drawPoints pen) points
 
 mapStateLocally2 ∷ Pen → [[Point]] → SettingsT Pdf.PDF XForm
-mapStateLocally2 pen points = do
-  drawing ← liftT $ fillCoordinates pen points
-  makeXForm1 drawing
+mapStateLocally2 pen = xformify . fillCoordinates pen
+
+xformify ∷ SettingsT Pdf.Draw () → SettingsT Pdf.PDF XForm
+xformify drawing = makeXForm1 ⇇ liftT drawing
 
 mapFineLines ∷ IO [[Point]] → SettingsT IO (Pdf.PDF XForm)
 mapFineLines source = do

@@ -9,13 +9,13 @@ muniLongName :: Municipality -> Text
 muniLongName m = fixMc . toTitle . transform . mCouncilName $ m
    where
       transform = case mState m of
-         Vic -> id
-         Tas -> stripCouncil
+         Vic -> remove " (UNINCORPORATED)" . remove " (UNINC)"
+         Tas -> remove " COUNCIL"
          Qld -> replaceRegional
          _ -> error (show m)
 
-stripCouncil :: Text -> Text
-stripCouncil = replace " COUNCIL" ""
+remove ∷ Text → Text → Text
+remove it = replace it ""
 
 replaceRegional :: Text -> Text
 replaceRegional = replace " REGIONAL" " REGION"

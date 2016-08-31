@@ -9,7 +9,7 @@ import qualified Graphics.PDF as Pdf
 import EachMap
 
 import UpdatedMapper
-import Prelude.Unicode
+import Unicode
 import Data.Complex
 import           ClassyPrelude                (traceM, traceShowId)
 import           Control.Monad.Trans.Resource
@@ -187,8 +187,11 @@ multiSources yielder bbox sink = mapM go yielder
 -- stuffed naming convention
 
 -- TODO mapLocality' and this are ~identical + filter
-mapMunicipality ∷ FilePaths → Municipality → SettingsT IO (Pdf.PDF XForm)
-mapMunicipality fps muni = do
+mapMunicipality ∷ FilePaths → Municipality → SettingsT IO [Pdf.PDF XForm]
+mapMunicipality fps muni = mapMunicipality2 fps muni ⇉ return . return
+
+mapMunicipality2 ∷ FilePaths → Municipality → SettingsT IO (Pdf.PDF XForm)
+mapMunicipality2 fps muni = do
   pen ← asks narrowArea
   bbox ← asks boundingBox
   points ← lift $ concat <$> municipalitySource fps muni (Just bbox)
@@ -197,6 +200,7 @@ mapMunicipality fps muni = do
       lift $ writeTitle (muniLongName muni)
       fillCoordinates pen points
   liftT $ makeXForm1 drawing
+
 
 rectToRectangle ∷ Rect → Pdf.Rectangle
 rectToRectangle (Rect x0 y0 x1 y1) = Pdf.Rectangle (x0 :+ y0) (x1 :+ y1)
@@ -293,7 +297,7 @@ mapMunicipalitiesInState1 fps state fn = do
   traceM $ show munis
   let points = [coastPoints, statePoints, urbanPoints, munisPoints]
   muniPoints ← mapM (mapMunicipalityInState fps) (S.toList munis)
-  drawing ← liftT $ runMagic (sequence points) muniPoints
+  drawing ← liftT $ runMagic (sequence points) (concat muniPoints)
   muzzle fn drawing
   traceM "done"
 
@@ -311,7 +315,7 @@ runMagic maps pages = do
    lift $ mapM_ (\pageMap → mozzle (maps' ⧺ [pageMap]) rect) pages'
 
 mapMunicipalityInState ∷ 
-   FilePaths → Municipality → SettingsT IO (Pdf.PDF XForm)
+   FilePaths → Municipality → SettingsT IO [Pdf.PDF XForm]
 mapMunicipalityInState fps muni = do
   lift $ print muni
   -- title <- mapTitle settings (muniLongName muni)
