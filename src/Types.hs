@@ -6,8 +6,6 @@ import Data.Text (Text)
 import Data.Csv
 import Control.Monad
 
-
-
 data Municipality = Municipality {
    mState :: State,
    mCouncilName :: Text,

@@ -1,9 +1,9 @@
-module PolygonReduce (reduce, reduce1, itWorks)
+module PolygonReduce (reduce, itWorks)
 where
 
 import Prelude.Unicode
 import Data.Monoid
--- import Data.Complex
+import Data.Complex
 import Data.Foldable
 import Data.Vector hiding (length, foldl', all)
 import Prelude (Show, show, error, (+), (>), ($), (<), (*), (^^), sqrt, abs, (-), (/), Int, Double, Bool(..))
@@ -22,11 +22,7 @@ perpendicularDistance (pX :+ pY) (p1x :+ p1y) (p2x :+ p2y) =
 
 reduce ∷ Double → Vector Point → Vector Point
 reduce 0 points = points
-reduce _ points = points
-
-reduce1 ∷ Double → Vector Point → Vector Point
-reduce1 0 points = points
-reduce1 ε points = if length points < 3 then points else reducedPoints
+reduce ε points = if length points < 3 then points else reducedPoints
    where
       firstPoint = head points
       lastPoint = last points

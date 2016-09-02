@@ -49,43 +49,42 @@ source-repository head
   type: git
   location: git://github.com/tmcl/localities.git
 
--- executable new
---   hs-source-dirs:      src
---   main-is: NewMain.hs
---   other-modules: SpecialCases, Types
---   ghc-options: -Wall -threaded
---   default-extensions: OverloadedStrings, UnicodeSyntax
---   build-depends:       base >=4.8 && <4.9,
---                        base-unicode-symbols ==0.2.*,
---                        bytestring ==0.10.*,
---                        readshp,
---                        mtl,
---                        cassava ==0.4.*,
---                        --containers ==0.5.*,
---                        text ==1.2.*,
---                        pretty-show ==1.6.*,
---                        -- HPDF ==1.4.*,
---                        classy-prelude,
---                        vector ==0.11.*
---   default-language:    Haskell2010
+executable new
+  hs-source-dirs:      src
+  main-is: NewMain.hs
+  other-modules: SpecialCases, Types
+  ghc-options: -Wall -threaded
+  default-extensions: OverloadedStrings, UnicodeSyntax
+  build-depends:       base >=4.8 && <4.9,
+                       base-unicode-symbols ==0.2.*,
+                       bytestring ==0.10.*,
+                       readshp,
+                       cassava ==0.4.*,
+                       containers ==0.5.*,
+                       text ==1.2.*,
+                       pretty-show ==1.6.*,
+                       HPDF ==1.4.*,
+                       classy-prelude,
+                       vector ==0.11.*
+  default-language:    Haskell2010
 
 
 
--- executable checkspecialcases
---   hs-source-dirs:      src
---   main-is: SpecialCasesMain.hs
---   other-modules: SpecialCases, Types
---   ghc-options: -Wall -threaded
---   default-extensions: OverloadedStrings, UnicodeSyntax
---   build-depends:       base >=4.8 && <4.9,
---                        base-unicode-symbols ==0.2.*,
---                        bytestring ==0.10.*,
---                        cassava ==0.4.*,
---                        --containers ==0.5.*,
---                        text ==1.2.*,
---                        pretty-show ==1.6.*,
---                        vector ==0.11.*
---   default-language:    Haskell2010
+executable checkspecialcases
+  hs-source-dirs:      src
+  main-is: SpecialCasesMain.hs
+  other-modules: SpecialCases, Types
+  ghc-options: -Wall -threaded
+  default-extensions: OverloadedStrings, UnicodeSyntax
+  build-depends:       base >=4.8 && <4.9,
+                       base-unicode-symbols ==0.2.*,
+                       bytestring ==0.10.*,
+                       cassava ==0.4.*,
+                       containers ==0.5.*,
+                       text ==1.2.*,
+                       pretty-show ==1.6.*,
+                       vector ==0.11.*
+  default-language:    Haskell2010
 
 executable checklocalities
   -- .hs or .lhs file containing the Main module.
@@ -118,7 +117,7 @@ executable checklocalities
                        vector ==0.11.*,
                        clipper,
                        base-unicode-symbols ==0.2.*,
-                       --containers ==0.5.*,
+                       containers ==0.5.*,
                        cassava ==0.4.*,
                        readshp
 
@@ -163,11 +162,11 @@ executable localities
                        filepath ==1.4.*,
                        vector ==0.11.*,
                        clipper,
-                       --containers ==0.5.*,
+                       containers ==0.5.*,
                        directory ==1.2.*,
                        mtl,
                        cassava ==0.4.*,
-                       -- HPDF ==1.4.*,
+                       HPDF ==1.4.*,
                        readshp
 
   -- Directories containing source files.
