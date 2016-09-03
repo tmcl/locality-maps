@@ -1,11 +1,14 @@
-module Settings (penColor, writingStyleColor, colorToColor, SettingsT, withDefaultSettings, ptc, Orientation(..), Width(..), Point, Color(..), Settings(..), Pen(..), WritingStyle(..), module Control.Monad.Trans.Reader)
+module Settings (penWidth, penColor, writingStyleColor, colorToColor, SettingsT, withDefaultSettings, ptc, Orientation(..), Width(..), Color(..), Settings(..), Pen(..), WritingStyle(..), liftF, module Control.Monad.Trans.Reader, module Point)
 where
 
+import Utils
+import Unicode
 import Control.Monad.Trans.Reader
-import Data.Complex
+import Control.Monad.Trans.Class
 import Geometry.Shapefile.Types (RecBBox(..))
 import qualified Graphics.PDF as Pdf
 import NewMap (Rect(..), invertScale, matrixForBBox, pageFromBBox)
+import Point
 
 import Data.Text (Text)
 
@@ -24,11 +27,13 @@ colorToColor ∷ Color → Pdf.Color
 colorToColor (Color r g b) = Pdf.Rgb (toRatio r) (toRatio g) (toRatio b)
    where toRatio n = fromIntegral n / 255
 
-type Point = Complex Double
-
 type SettingsT = ReaderT Settings
 
+liftF ∷ (Monad m) ⇒ FilePathsT m a → SettingsT m a
+liftF m = asks filePaths ⇉ lift . runReaderT m
+
 data Settings = Settings {
+    filePaths ∷ FilePaths,
     settingsEpsilon ∷ Maybe Double,
     settingsMatrix ∷ Pdf.Matrix,
     settingsRect ∷ Rect,
@@ -47,8 +52,9 @@ data Settings = Settings {
     narrowLines :: Pen
 }
 
-withDefaultSettings :: RecBBox -> Settings
-withDefaultSettings bbox = Settings {
+withDefaultSettings ∷ FilePaths → RecBBox → Settings
+withDefaultSettings fps bbox = Settings {
+    filePaths = fps,
     orientation = Portrait,
     projection = if width > height then "-JM60c" else "-JM100c+",
     land = Pen (Solid (Color 245 245 245)) 0,
@@ -87,3 +93,7 @@ data WritingStyle
     = Solid Color
     | Water Color
     | Outline Width Color
+
+penWidth (Pen (Outline (Points w) _) _) = w
+penWidth _ = 10 
+

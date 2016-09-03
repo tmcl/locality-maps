@@ -1,10 +1,12 @@
 module UpdatedMapper (makeXForm1, drawPoints, fillPoints1, fillPoints2, applySettings, shapeSource, withShpFile, toDbf, eachPolygon, eachPlace, XForm, liftT) where
 
+import Data.Text (Text)
+import FindLocalities (localityColumnName)
 import Data.Conduit
 import qualified Data.Conduit.Combinators as CC
 import Geometry.Shapefile.Conduit
 import Settings
-import Data.List
+import Utils
 import Data.Maybe
 import System.IO
 import System.FilePath
@@ -12,6 +14,7 @@ import qualified Graphics.PDF as Pdf
 import NewMap
 import Control.Monad.Trans.Class
 
+import Data.Vector (Vector)
 import qualified Data.Vector as V
 import PolygonReduce
 
@@ -19,17 +22,19 @@ liftT ∷ (Monad m, Monad n) ⇒ ReaderT r n a → ReaderT r m (n a)
 liftT = mapReaderT return
 
 applySettings ∷ SettingsT Pdf.Draw ()
-applySettings = asks settingsMatrix >>= lift . Pdf.applyMatrix
+applySettings = do
+   matrix ← asks settingsMatrix 
+   lift $ Pdf.applyMatrix matrix
 
 penToAlpha ∷ Pen → Double
 penToAlpha (Pen _ a) = fromIntegral (100-a)/100
 
-fillPoints2 ∷ (Settings → Pen) → [Point] → SettingsT Pdf.Draw ()
+fillPoints2 ∷ (Settings → Pen) → Vector Point → SettingsT Pdf.Draw ()
 fillPoints2 asker points = do
    pen ← asks asker
    fillPoints1 pen points
 
-fillPoints1 ∷ Pen → [Point] → SettingsT Pdf.Draw ()
+fillPoints1 ∷ Pen → Vector Point → SettingsT Pdf.Draw ()
 fillPoints1 color points = do
    preparePoints1 points
    lift $ Pdf.fillColor (ptc color)
@@ -49,31 +54,27 @@ withShpFile filePath cb =
 toDbf ∷ FilePath → FilePath
 toDbf = (`replaceExtension` "dbf")
 
-
-
-eachPolygon ∷ Conduit (a, ShpRec, b) IO [[Point]]
+eachPolygon ∷ Conduit Shape IO [Vector Point]
 eachPolygon = CC.map (\(_, r, _) → pointsFromRecord r)
 
-eachPlace ∷ Conduit (a, ShpRec, b) IO [[Point]]
+eachPlace ∷ Conduit Shape IO [Vector Point]
 eachPlace = CC.map (\(_, r, _) →
-   return . concat . andReverseTheRest . map wrapEnds . pointsFromRecord $ r)
+   return . tsi . V.concat . pointsFromRecord $ r)
+   where
+      tsi a = seq a a
 
-andReverseTheRest ∷ [[a]] → [[a]]
-andReverseTheRest (first:rest) = first:intersperse [last first] rest
-andReverseTheRest a = a
+-- andReverseTheRest ∷ [Vector a] → [Vector a]
+-- andReverseTheRest (first:rest) = first:intersperse [last first] rest
+-- andReverseTheRest a = a
 
-pointsFromRecord ∷ ShpRec → [[Point]]
-pointsFromRecord r = concatMap pointsFromRecContents (catMaybes [shpRecContents r])
+pointsFromRecord ∷ ShpRec → [Vector Point]
+pointsFromRecord r = 
+   maybe [] pointsFromRecContents (shpRecContents r)
 
-pointsFromRecContents ∷ RecContents → [[Point]]
-pointsFromRecContents r@RecPolygon {}  = recPolPoints r
-pointsFromRecContents r@RecPolyLine {} = recPolLPoints r
-pointsFromRecContents _                = []
-
-wrapEnds ∷ [Point] → [Point]
-wrapEnds [] = []
-wrapEnds [a] = [a]
-wrapEnds line = last line:line
+--wrapEnds ∷ Vector Point → Vector Point
+--wrapEnds v
+--   | length v < 2 = v
+--   | otherwise = V.snoc v (V.head v)
 
 type XForm = Pdf.PDFReference Pdf.PDFXForm
 
@@ -82,11 +83,12 @@ makeXForm1 draw = do
    Rect x0 y0 x1 y1 ← asks settingsRect
    lift $ Pdf.createPDFXForm x0 y0 x1 y1 draw
 
-drawPoints ∷ Pen → [Point] → SettingsT Pdf.Draw ()
+drawPoints ∷ Pen → Vector Point → SettingsT Pdf.Draw ()
 drawPoints color points = do
    preparePoints1 points
    eps ← asks settingsEpsilon
-   lift (whenˀ $ Pdf.setWidth . (4 *) <$> eps)
+   let w = penWidth color
+   lift (whenˀ $ Pdf.setWidth . (w * 4 *) <$> eps)
    lift $ Pdf.strokeColor (ptc color)
    lift Pdf.strokePath
 
@@ -94,10 +96,15 @@ whenˀ ∷ Monad m ⇒  Maybe (m ()) → m ()
 whenˀ (Just foo) = foo
 whenˀ Nothing = return ()
 
-preparePoints1 ∷ [Point] → SettingsT Pdf.Draw () 
+preparePoints1 ∷ Vector Point → SettingsT Pdf.Draw () 
 preparePoints1 points = do
    eps ← asks settingsEpsilon
    bbox ← asks boundingBox
-   let reducer = maybe id reduce eps
-   lift $ Pdf.addPolygonToPath . V.toList . reducer . clipPath bbox . V.fromList 
-      $ points
+   let reducer = maybe id (reduce . (*4) ) eps
+       clipPath _ = id
+   lift $ addPolygonToPath . reducer . clipPath bbox $ points
+
+type Locality = Text
+
+matchLocality ∷ Locality → Shape → Bool
+matchLocality m = matchTextDbfField m localityColumnName

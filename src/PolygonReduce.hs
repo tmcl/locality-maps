@@ -1,21 +1,20 @@
 module PolygonReduce (reduce, itWorks)
 where
 
+import Point
 import Prelude.Unicode
 import Data.Monoid
 import Data.Complex
 import Data.Foldable
 import Data.Vector hiding (length, foldl', all)
-import Prelude (Show, show, error, (+), (>), ($), (<), (*), (^^), sqrt, abs, (-), (/), Int, Double, Bool(..))
+import Prelude (Eq, Show, show, error, (+), (>), ($), (<), (*), (^^), sqrt, abs, (-), (/), Int, Double, Bool(..))
 import Control.Applicative
-
-type Point = Complex Double
 
 perpendicularDistance ∷ Point → Point → Point → Double
 perpendicularDistance (pX :+ pY) (p1x :+ p1y) (p2x :+ p2y) = 
-   if (p1x ≡ p2x) 
+   if p1x ≡ p2x 
    then abs (pX - p1x)
-   else (abs (slope * pX - pY + intercept)) / (sqrt((slope ^^ (2∷ℤ)) + 1))
+   else abs (slope * pX - pY + intercept) / sqrt((slope ^^ (2∷ℤ)) + 1)
    where
       slope = (p2y - p1y) / (p2x - p1x)
       intercept = p1y - (slope * p1x)
@@ -45,10 +44,10 @@ maxPerpendicularDistance firstPoint lastPoint (dist, ix, counter) point =
 
 
 test ∷ TestCase → Bool
-test testcase = let result = reduce (testEps testcase) (fromList $ original testcase) in
-   case fromList (expected testcase) ≡ result of
-      True → True
-      False → error (show testcase ⧺ " yielded " ⧺ show result)
+test testcase = (fromList (expected testcase) ≡ result) 
+   ∨ error (show testcase ⧺ " yielded " ⧺ show result)
+   where 
+      result = reduce (testEps testcase) (fromList $ original testcase)
       
 itWorks ∷ Bool
 itWorks = all test testCases

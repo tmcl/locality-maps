@@ -3,12 +3,14 @@
 module NewMap
 where
 
-import Graphics.PDF hiding (boxHeight, boxWidth)
+import Point
+import qualified Graphics.PDF as Pdf
+import Graphics.PDF hiding (addPolygonToPath, Point)
 --import Control.Monad.Unicode
 import Prelude.Unicode
 import Data.String (IsString(..))
 import Data.Vector (Vector)
--- import qualified Data.Vector as V
+import qualified Data.Vector as V
 import Data.Foldable
 import Data.Maybe
 import PolygonReduce
@@ -127,11 +129,16 @@ mapOnPage rect@(Rect x0 y0 x1 y1) shape =
       let width = invertScale matrix 1
       setWidth width
       strokeColor green
-      addPolygonToPath $ toList $
+      addPolygonToPath $ 
          reduce 0.005 $ clipPath (shpBBox shape) $ shpPoints shape
       strokePath
 
-createPage1Content ∷ PDFReference PDFXForm → PDFReference PDFPage → PDF ()
+addPolygonToPath ∷ Vector Point → Draw ()
+addPolygonToPath = Pdf.addPolygonToPath . V.toList
+
+createPage1Content ∷ PDFReference PDFXForm 
+                   → PDFReference PDFPage 
+                   → PDF ()
 createPage1Content basemap page = drawWithPage page $ do
       strokeColor red
       setWidth 0.5
@@ -139,11 +146,12 @@ createPage1Content basemap page = drawWithPage page $ do
       drawXObject basemap
       return ()
 
-createPage2Content ∷ PDFReference PDFXForm → PDFReference PDFPage → PDF ()
+createPage2Content ∷ PDFReference PDFXForm 
+                   → PDFReference PDFPage 
+                   → PDF ()
 createPage2Content basemap page = drawWithPage page $ do
       strokeColor blue
       setWidth 0.5
       fill $ Rectangle (00 :+ 10) (300 :+ 200)
       drawXObject basemap
       return ()
-

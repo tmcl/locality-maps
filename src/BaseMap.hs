@@ -1,10 +1,8 @@
 module BaseMap (mapCoast, mapUrbanAreas)
 where
 
-import ClassyPrelude (traceShowId)
 import Algebra.Clipper
 import Utils
-import Data.Complex
 import qualified Graphics.PDF as Pdf
 import Data.Conduit
 import qualified Data.Conduit.Combinators as CC
@@ -12,6 +10,8 @@ import UpdatedMapper
 import Data.Text (Text)
 import FindLocalities (toClipperPolygon, fromClipperPolygon)
 import Control.Monad.Trans.Class
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 import Geometry.Shapefile.Conduit 
 
@@ -20,8 +20,8 @@ import Settings
 matchUrbanAreaType ∷ Text → Shape → Bool
 matchUrbanAreaType = (`matchTextDbfField` (== "SOS_NAME11"))
 
-bboxToPolygon ∷ RecBBox → [Point]
-bboxToPolygon box = [
+bboxToPolygon ∷ RecBBox → Vector Point
+bboxToPolygon box = V.fromList [
    lowerLeft box,
    lowerRight box,
    upperRight box,
@@ -38,19 +38,20 @@ upperLeft box = recXMin box :+ recYMax box
 matchFeatCode ∷ Text → Shape → Bool
 matchFeatCode = (`matchTextDbfField` (== "FEAT_CODE"))
 
-mapCoast ∷ FilePaths → SettingsT IO (Pdf.PDF XForm)
-mapCoast fps = drawCoast fps >>= (liftT . makeXForm1)
+mapCoast ∷ SettingsT IO (Pdf.PDF XForm)
+mapCoast = drawCoast >>= (liftT . makeXForm1)
 
-mapUrbanAreas ∷ FilePaths → SettingsT IO (Pdf.PDF XForm)
-mapUrbanAreas fps = (liftT . makeXForm1) =<< drawUrbanAreas fps 
+mapUrbanAreas ∷ SettingsT IO (Pdf.PDF XForm)
+mapUrbanAreas = (liftT . makeXForm1) =<< drawUrbanAreas
 
-drawUrbanAreas ∷ FilePaths → SettingsT IO (Pdf.Draw ())
-drawUrbanAreas fps = do
+drawUrbanAreas ∷ SettingsT IO (Pdf.Draw ())
+drawUrbanAreas = do
    bbox ← asks boundingBox
+   fps ← asks filePaths
    (b1, o1, m1) ← lift $ mapUrbanAreas2 fps bbox
    liftT $ mapUrbanAreas3 b1 o1 m1
 
-mapUrbanAreas2 ∷ FilePaths → RecBBox → IO ([[Point]], [[Point]], [[Point]])
+mapUrbanAreas2 ∷ FilePaths → RecBBox → IO ([Vector Point], [Vector Point], [Vector Point])
 mapUrbanAreas2 fps bbox = do
   (bLoc', othUrban', majUrban') <- shapeSource (urbanAreas fps) (Just bbox)
     (CC.foldl (\(a, b, c) shape →
@@ -67,9 +68,9 @@ mapUrbanAreas2 fps bbox = do
   majUrban <- CC.yieldMany majUrban'
     =$= eachPolygon
     $$ CC.sinkList
-  return (traceShowId (concat bLoc), concat othUrban, concat majUrban)
+  return (concat bLoc, concat othUrban, concat majUrban)
 
-mapUrbanAreas3 ∷ [[Point]] → [[Point]] → [[Point]] 
+mapUrbanAreas3 ∷ [Vector Point] → [Vector Point] → [Vector Point] 
                  → SettingsT Pdf.Draw ()
 mapUrbanAreas3 bLoc othUrban majUrban = do
    applySettings
@@ -77,15 +78,18 @@ mapUrbanAreas3 bLoc othUrban majUrban = do
    mapM_ (fillPoints2 otherUrban) othUrban
    mapM_ (fillPoints2 majorUrban) majUrban
 
-mapCoast3 ∷ [[Point]] → [[Point]] → SettingsT Pdf.Draw ()
+mapCoast3 ∷ [Vector Point] → [Vector Point] → SettingsT Pdf.Draw ()
 mapCoast3 sea lands = do
    applySettings 
    mapM_ (fillPoints2 water) sea
    mapM_ (fillPoints2 land) lands
+   pen ← asks riverPen
+   mapM_ (drawPoints pen) lands
 
-drawCoast ∷ FilePaths → SettingsT IO (Pdf.Draw ())
-drawCoast fps = do
+drawCoast ∷ SettingsT IO (Pdf.Draw ())
+drawCoast = do
    bbox ← asks boundingBox
+   fps ← asks filePaths
    let getLandShapes = CC.filter (not . matchFeatCode "sea")
                        =$= eachPlace 
                        =$= CC.concat

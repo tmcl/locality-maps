@@ -1,11 +1,12 @@
 module FindLocalities where
 
-import Data.Complex
+import Point
 import Algebra.Clipper
 import Geometry.Shapefile.Conduit
-import Geometry.Shapefile.Internal (Point)
 import qualified Data.Conduit.Combinators as CC
 import Data.Conduit
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 import qualified Data.Conduit.List as CL
 import Data.Dbase.Parser
 import System.IO
@@ -18,12 +19,6 @@ import Data.ByteString (ByteString)
 import Control.Monad.IO.Class
 import Utils
 import Types
-
-type ShapeSource = (FilePath, Shape -> Bool)
-type Yielder = [ShapeSource]
-
-lgaColumnName :: Text -> Bool
-lgaColumnName t = "_LGA__3" `T.isSuffixOf` t || "_LGA_s_3" `T.isSuffixOf` t
 
 localityColumnName :: Text -> Bool
 localityColumnName t = "_LOCA_2" `T.isSuffixOf` t || "_LOCAL_2" `T.isSuffixOf` t
@@ -43,26 +38,25 @@ makeShpDbfConduit shp conduit =
       conduit (sourceFromStart shpH) (sourceFromStart dbfH)
 
 toClipperPolygons :: Shape -> [(Polygon, Maybe RecBBox)]
-toClipperPolygons (_, shpRec, _) = map (\l -> (toClipperPolygon l, shpRecBBox shpRec)) (maybe [] recContentsPolygons (shpRecContents shpRec))
+toClipperPolygons (_, shpRec, _) = map go (maybe [] pointsFromRecContents (shpRecContents shpRec))
+   where 
+      go l = (toClipperPolygon l, shpRecBBox shpRec) 
 
 
-recContentsPolygons :: RecContents -> [[Point]]
-recContentsPolygons p@(RecPolygon {}) = recPolPoints p
-recContentsPolygons _ = []
 
-toClipperPolygon :: [Point] -> Polygon
-toClipperPolygon p = Polygon (map toClipperPoint p)
+toClipperPolygon :: Vector Point -> Polygon
+toClipperPolygon p = Polygon $ V.toList (fmap toClipperPoint p)
 toClipperPoint :: Point -> IntPoint
 toClipperPoint (x :+ y) = IntPoint (floor $ x*bigNum) (floor $ y*bigNum)
 
 bigNum :: Double
 bigNum = 2^(63-8::Integer)
 
-fromClipperPolygon :: Polygon -> [Point]
-fromClipperPolygon (Polygon p) = map fromClipperPoint p
+fromClipperPolygon :: Polygon -> Vector Point
+fromClipperPolygon (Polygon p) = V.fromList $ map fromClipperPoint p
 fromClipperPoint :: IntPoint -> Point
 fromClipperPoint (IntPoint x y) = 
-   fromIntegral x/bigNum :+ fromIntegral y/bigNum
+   (fromIntegral x/bigNum) :+ (fromIntegral y/bigNum)
 
 localitiesByMunicipality :: T.Text -> FilePath -> Yielder -> IO (Set Locality)
 localitiesByMunicipality municipality municipalities localities = do

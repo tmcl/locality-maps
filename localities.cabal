@@ -55,17 +55,17 @@ executable new
   other-modules: SpecialCases, Types
   ghc-options: -Wall -threaded
   default-extensions: OverloadedStrings, UnicodeSyntax
-  build-depends:       base >=4.8 && <4.9,
-                       base-unicode-symbols ==0.2.*,
-                       bytestring ==0.10.*,
+  build-depends:       base,
+                       base-unicode-symbols,
+                       bytestring,
                        readshp,
-                       cassava ==0.4.*,
-                       containers ==0.5.*,
-                       text ==1.2.*,
-                       pretty-show ==1.6.*,
-                       HPDF ==1.4.*,
+                       cassava,
+                       containers,
+                       text,
+                       pretty-show,
+                       HPDF,
                        classy-prelude,
-                       vector ==0.11.*
+                       vector
   default-language:    Haskell2010
 
 
@@ -76,14 +76,14 @@ executable checkspecialcases
   other-modules: SpecialCases, Types
   ghc-options: -Wall -threaded
   default-extensions: OverloadedStrings, UnicodeSyntax
-  build-depends:       base >=4.8 && <4.9,
-                       base-unicode-symbols ==0.2.*,
-                       bytestring ==0.10.*,
-                       cassava ==0.4.*,
-                       containers ==0.5.*,
-                       text ==1.2.*,
-                       pretty-show ==1.6.*,
-                       vector ==0.11.*
+  build-depends:       base,
+                       base-unicode-symbols,
+                       bytestring,
+                       cassava,
+                       containers,
+                       text,
+                       pretty-show,
+                       vector
   default-language:    Haskell2010
 
 executable checklocalities
@@ -98,27 +98,27 @@ executable checklocalities
   -- other-extensions:    
   
   -- Other library packages from which modules are imported.
-  build-depends:       base >=4.8 && <4.9,
+  build-depends:       base,
                        shapefile-parser,
-                       conduit-combinators ==1.0.*,
-                       conduit-extra ==1.1.*,
-                       conduit ==1.2.*,
-                       chunked-data ==0.2.*,
-                       process ==1.2.*,
-                       text ==1.2.*,
-                       bytestring ==0.10.*,
-                       binary ==0.7.*,
-                       blaze-builder ==0.4.*,
-                       transformers ==0.4.*,
-                       resourcet ==1.1.*,
+                       conduit-combinators,
+                       conduit-extra,
+                       conduit,
+                       chunked-data,
+                       process,
+                       text,
+                       bytestring,
+                       binary,
+                       blaze-builder,
+                       transformers,
+                       resourcet,
                        classy-prelude,
                        mmorph,
-                       filepath ==1.4.*,
-                       vector ==0.11.*,
+                       filepath,
+                       vector,
                        clipper,
-                       base-unicode-symbols ==0.2.*,
-                       containers ==0.5.*,
-                       cassava ==0.4.*,
+                       base-unicode-symbols,
+                       containers,
+                       cassava,
                        readshp
 
   -- Directories containing source files.
@@ -143,30 +143,30 @@ executable localities
   -- other-extensions:    
   
   -- Other library packages from which modules are imported.
-  build-depends:       base >=4.8 && <4.9,
+  build-depends:       base,
                        shapefile-parser,
-                       conduit-combinators ==1.0.*,
-                       conduit-extra ==1.1.*,
-                       conduit ==1.2.*,
-                       chunked-data ==0.2.*,
-                       process ==1.2.*,
-                       text ==1.2.*,
-                       bytestring ==0.10.*,
-                       base-unicode-symbols ==0.2.*,
-                       binary ==0.7.*,
-                       blaze-builder ==0.4.*,
-                       transformers ==0.4.*,
-                       resourcet ==1.1.*,
+                       conduit-combinators,
+                       conduit-extra,
+                       conduit,
+                       chunked-data,
+                       process,
+                       text,
+                       bytestring,
+                       base-unicode-symbols,
+                       binary,
+                       blaze-builder,
+                       transformers,
+                       resourcet,
                        classy-prelude,
                        mmorph,
-                       filepath ==1.4.*,
-                       vector ==0.11.*,
+                       filepath,
+                       vector,
                        clipper,
-                       containers ==0.5.*,
-                       directory ==1.2.*,
+                       containers,
+                       directory,
                        mtl,
-                       cassava ==0.4.*,
-                       HPDF ==1.4.*,
+                       cassava,
+                       HPDF,
                        readshp
 
   -- Directories containing source files.

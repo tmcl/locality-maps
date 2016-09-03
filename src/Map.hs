@@ -93,6 +93,9 @@ mapPointsParams settings pen = params
             "-t" ++ show (transparency pen)
             ]
 
+mapPoints4 :: Settings -> Pen -> Conduit [V.Vector Point] IO ByteString
+mapPoints4 s p = CC.map (map V.toList) =$= mapPoints3 s p
+
 mapPoints3 :: Settings -> Pen -> Conduit [[Point]] IO ByteString
 mapPoints3 settings pen = CC.conduitVector 200 =$= awaitForever go
    where

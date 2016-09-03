@@ -14,7 +14,7 @@ data Municipality = Municipality {
    deriving (Show, Read)
 
 instance Eq Municipality where
-   a == b = (mState a) ≡ (mState b) ∧ (mName a) ≡ (mName b)
+   a == b = mState a ≡ mState b ∧ mName a ≡ mName b
 
 instance Ord Municipality where
    compare a b = let states = compare (mState a) (mState b) in
