@@ -116,8 +116,8 @@ polygonGetPoint :: PolygonPtr -> Int -> IO IntPoint
 polygonGetPoint ptr i = IntPoint <$> polygonGetPointX ptr i' <*> polygonGetPointY ptr i'
     where i' = fromIntegral i
 
-polygonArea :: Polygon -> IO Double
-polygonArea poly = do
+polygonArea :: Polygon -> Double
+polygonArea poly = unsafeDupablePerformIO $ do
   fptr <- polygonNew (size poly) >>= 
           newForeignPtr polygonFree
   withForeignPtr fptr (flip poke poly)
