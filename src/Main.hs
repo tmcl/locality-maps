@@ -144,10 +144,12 @@ mapLocality2 ∷ Municipality
              → Locality 
              → SettingsT IO (Pdf.PDF XForm)
 mapLocality2 muni locality = do
-   lift $ print locality
+   let mln = show (muniLongName muni)
+   lift$putStrLn$(show locality)⧺" in "⧺mln
    l ← mapLoc'y (fillCoordinates narrowArea) locality
+   ll ← mapLoki2 narrowLines locality
    let title = T.concat [locality, " in ", muniLongName muni]
-       drawing = writeTitle title >> l
+       drawing = writeTitle title >> l >> ll
    xformify' drawing
    
 mapLocality ∷ Municipality → SettingsT IO [Pdf.PDF XForm]
@@ -201,19 +203,24 @@ mapMunicipalitiesInState1 state munis = do
   muniPoints ← mapM (mapMunicipality narrowArea) munis
   liftT $ runMagic (sequence points) muniPoints
   
-mapMunicipalitiesLocally1 ∷ FilePaths → [Municipality] → IO (Pdf.PDF ())
-mapMunicipalitiesLocally1 fps munis = do 
-  --let munis = S.filter (\l → any (`T.isInfixOf` mName l) ["KING"] ) munis'
+mapMunicipalitiesLocally1 ∷ FilePath
+                          → FilePaths 
+                          → [Municipality] 
+                          → IO ()
+mapMunicipalitiesLocally1 out fps munis = do 
   traceM $ show munis
-  let actions ∷ [IO (Pdf.PDF ())]
-      actions = map (mapMunicipalityLocally1 fps) munis
-  middle ← sequence actions
-  return $ sequence_ middle
+  mapM_ (mapMunicipalityLocally1 out fps) munis
 
-mapMunicipalityLocally1 ∷ FilePaths → Municipality → IO (Pdf.PDF ())
-mapMunicipalityLocally1 fps muni = do
-   Just settings ← settingsFromMunicipality fps muni
-   runReaderT (mapMunicipalityLocally2 muni) settings
+mapMunicipalityLocally1 ∷ FilePath 
+                        → FilePaths 
+                        → Municipality → IO ()
+mapMunicipalityLocally1 out fps muni = do
+  Just settings ← settingsFromMunicipality fps muni
+  pdf2 ← runReaderT (mapMunicipalityLocally2 muni) settings
+  let state = show $ mState muni
+      name = T.unpack $ muniLongName muni
+      fn2 = out ⧺ "/" ⧺ name ⧺ " and " ⧺ state ⧺ ".pdf"
+  muzzle (settingsRect settings) fn2 $! pdf2
 
 mapMunicipalityLocally2 ∷ Municipality → SettingsT IO (Pdf.PDF ())
 mapMunicipalityLocally2 muni = do
@@ -238,12 +245,11 @@ mapMunicipalityLocally2 muni = do
 
 mapMunicipalitiesInState ∷ FilePaths → State → FilePath → IO ()
 mapMunicipalitiesInState fps state out = do
-  let fn = out ++ "/" ++ show state ++ ".pdf"
+  let fn1 = out ⧺ "/" ⧺ show state ⧺ "1.pdf"
   Just settings ← settingsFromState fps state
   munis ← S.toList <$> municipalitiesByFilePath (municipalityFilePathByState state fps) state
-  pdf ← strictly $ runReaderT (mapMunicipalitiesInState1 state munis) settings
-  pdf2 ← strictly $ mapMunicipalitiesLocally1 fps (take 6 munis)
-  muzzle (settingsRect settings) fn $! pdf >> pdf2
+  muzzle (settingsRect settings) fn1 ⇇ strictly ( runReaderT (mapMunicipalitiesInState1 state munis) settings)
+  strictly $ mapMunicipalitiesLocally1 out fps munis
 
 strictly ∷ a → a
 strictly a = seq a a

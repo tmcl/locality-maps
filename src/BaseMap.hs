@@ -20,21 +20,6 @@ import Settings
 matchUrbanAreaType ∷ Text → Shape → Bool
 matchUrbanAreaType = (`matchTextDbfField` (== "SOS_NAME11"))
 
-bboxToPolygon ∷ RecBBox → Vector Point
-bboxToPolygon box = V.fromList [
-   lowerLeft box,
-   lowerRight box,
-   upperRight box,
-   upperLeft box,
-   lowerLeft box]
-
-
-lowerRight ∷ RecBBox → Point
-lowerRight box = recXMax box :+ recYMin box
-upperLeft ∷ RecBBox → Point
-upperLeft box = recXMin box :+ recYMax box
-
-
 matchFeatCode ∷ Text → Shape → Bool
 matchFeatCode = (`matchTextDbfField` (== "FEAT_CODE"))
 
@@ -74,15 +59,15 @@ mapUrbanAreas3 ∷ [Vector Point] → [Vector Point] → [Vector Point]
                  → SettingsT Pdf.Draw ()
 mapUrbanAreas3 bLoc othUrban majUrban = do
    applySettings
-   mapM_ (fillPoints2 boundedLocality) bLoc
-   mapM_ (fillPoints2 otherUrban) othUrban
-   mapM_ (fillPoints2 majorUrban) majUrban
+   fillPoints2 boundedLocality bLoc
+   fillPoints2 otherUrban othUrban
+   fillPoints2 majorUrban majUrban
 
 mapCoast3 ∷ [Vector Point] → [Vector Point] → SettingsT Pdf.Draw ()
 mapCoast3 sea lands = do
    applySettings 
-   mapM_ (fillPoints2 water) sea
-   mapM_ (fillPoints2 land) lands
+   fillPoints2 water sea
+   fillPoints2 land lands
    pen ← asks riverPen
    mapM_ (drawPoints pen) lands
 

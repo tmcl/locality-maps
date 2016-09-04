@@ -1,4 +1,4 @@
-module UpdatedMapper (makeXForm1, drawPoints, fillPoints1, fillPoints2, applySettings, shapeSource, withShpFile, toDbf, eachPolygon, eachPlace, XForm, liftT) where
+module UpdatedMapper where
 
 import Data.Text (Text)
 import FindLocalities (localityColumnName)
@@ -29,12 +29,26 @@ applySettings = do
 penToAlpha ∷ Pen → Double
 penToAlpha (Pen _ a) = fromIntegral (100-a)/100
 
-fillPoints2 ∷ (Settings → Pen) → Vector Point → SettingsT Pdf.Draw ()
+fillPoints2 ∷ (Settings → Pen) → [Vector Point] → SettingsT Pdf.Draw ()
 fillPoints2 asker points = do
    pen ← asks asker
    fillPoints1 pen points
 
-fillPoints1 ∷ Pen → Vector Point → SettingsT Pdf.Draw ()
+drawCircles ∷ Pen → [Point] → SettingsT Pdf.Draw ()
+drawCircles color = mapM_ (drawCircle color)
+
+drawCircle ∷ Pen → Point → SettingsT Pdf.Draw ()
+drawCircle color (x :+ y) = do
+   let pen = color {penWritingStyle = Outline (Points 5) (penColor color)}
+   eps ← asks settingsEpsilon
+   usePen pen
+   let w = maybe 1 (100*) eps
+   let c = Pdf.Circle x y w
+   lift $ Pdf.addShape c
+   lift Pdf.strokePath
+
+
+fillPoints1 ∷ Pen → [Vector Point] → SettingsT Pdf.Draw ()
 fillPoints1 color points = do
    preparePoints1 points
    lift $ Pdf.fillColor (ptc color)
@@ -85,26 +99,41 @@ makeXForm1 draw = do
 
 drawPoints ∷ Pen → Vector Point → SettingsT Pdf.Draw ()
 drawPoints color points = do
-   preparePoints1 points
+   preparePoints1 [points]
+   usePen color
+   lift Pdf.strokePath
+
+usePen ∷ Pen → SettingsT Pdf.Draw ()
+usePen color = do
    eps ← asks settingsEpsilon
    let w = penWidth color
    lift (whenˀ $ Pdf.setWidth . (w * 4 *) <$> eps)
    lift $ Pdf.strokeColor (ptc color)
-   lift Pdf.strokePath
+
+bboxToPolygon ∷ RecBBox → Vector Point
+bboxToPolygon box = V.fromList [
+   lowerLeft box,
+   lowerRight box,
+   upperRight box,
+   upperLeft box,
+   lowerLeft box]
+
+lowerRight ∷ RecBBox → Point
+lowerRight box = recXMax box :+ recYMin box
+upperLeft ∷ RecBBox → Point
+upperLeft box = recXMin box :+ recYMax box
 
 whenˀ ∷ Monad m ⇒  Maybe (m ()) → m ()
 whenˀ (Just foo) = foo
 whenˀ Nothing = return ()
 
-preparePoints1 ∷ Vector Point → SettingsT Pdf.Draw () 
+preparePoints1 ∷ [Vector Point] → SettingsT Pdf.Draw () 
 preparePoints1 points = do
    eps ← asks settingsEpsilon
    bbox ← asks boundingBox
    let reducer = maybe id (reduce . (*4) ) eps
        clipPath _ = id
-   lift $ addPolygonToPath . reducer . clipPath bbox $ points
+   lift $ mapM_ (addPolygonToPath . reducer . clipPath bbox) points
 
-type Locality = Text
-
-matchLocality ∷ Locality → Shape → Bool
-matchLocality m = matchTextDbfField m localityColumnName
+-- squared ∷ ∀a. (a → a) → a
+-- squared f = f . f

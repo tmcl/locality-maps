@@ -90,7 +90,7 @@ cdt shapeFilter bbox polygons shpH dbfH =
     =$= CC.filterM (\(_, _, c) -> return (0 /= sizes c))
     =$= CC.filterM (\(_, _, c) -> do
          let (Polygons pp) = c
-         biggest <- maximum <$> mapM polygonArea pp
+             biggest = maximum $ map polygonArea pp
          return $ biggest > 1e25 && length pp < 6 || biggest > 1e27)
     =$= CC.mapM (\(a, b, _) -> return (a, b))
 
