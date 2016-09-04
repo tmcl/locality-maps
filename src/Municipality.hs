@@ -16,6 +16,7 @@ muniLongName m = fixThe . fixMc . toTitle . transform . mCouncilName $ m
          Tas -> removeCouncil
          Qld -> replaceRegional
          SA → saMap
+         NT → replace "Un-Incorporated" "Unincorporated"
          _ -> error (show m)
 
 specialNSW ∷ Text → Text
