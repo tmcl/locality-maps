@@ -1,4 +1,4 @@
-module BaseMap (mapCoast, mapUrbanAreas)
+module BaseMap ()
 where
 
 import Algebra.Clipper

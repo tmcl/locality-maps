@@ -54,7 +54,10 @@ addCaseToDictionary :: SpecialCaseMap -> SpecialCaseRecord -> SpecialCaseMap
 addCaseToDictionary dict scRecord = 
    insertWith 
       union 
-      (Municipality (scrState scRecord) (scrMunicipality scRecord) "")
+      Municipality {
+         mState = scrState scRecord,
+         mCouncilName = "", 
+         mName = scrMunicipality scRecord}
       (singleton (scrLocality scRecord) (scrType scRecord))
       dict 
 

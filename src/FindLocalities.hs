@@ -1,4 +1,4 @@
-module FindLocalities where
+module FindLocalities() where
 
 import Point
 import Algebra.Clipper

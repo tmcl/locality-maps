@@ -1,4 +1,4 @@
-module Municipality
+module Municipality()
 where
 
 import Prelude hiding (concat)

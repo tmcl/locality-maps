@@ -1,4 +1,4 @@
-module Settings (penWidth, penColor, writingStyleColor, colorToColor, SettingsT, withDefaultSettings, ptc, Orientation(..), Width(..), Color(..), Settings(..), Pen(..), WritingStyle(..), liftF, module Control.Monad.Trans.Reader, module Point)
+module Settings (settingsSpecialCases, filePaths, penWidth, penColor, writingStyleColor, colorToColor, SettingsT, withDefaultSettings, ptc, Orientation(..), Width(..), Color(..), Settings(..), Pen(..), WritingStyle(..), liftF, module Control.Monad.Trans.Reader, module Point)
 where
 
 import Utils
@@ -29,11 +29,16 @@ colorToColor (Color r g b) = Pdf.Rgb (toRatio r) (toRatio g) (toRatio b)
 
 type SettingsT = ReaderT Settings
 
-liftF ∷ (Monad m) ⇒ FilePathsT m a → SettingsT m a
-liftF m = asks filePaths ⇉ lift . runReaderT m
+liftF ∷ (Monad m) ⇒ RunSettingsT m a → SettingsT m a
+liftF m = asks settingsRunSettings ⇉ lift . runReaderT m
+
+filePaths ∷ Settings → FilePaths
+filePaths = rsFilePaths . settingsRunSettings
+
+settingsSpecialCases = rsSpecialCaseMap . settingsRunSettings
 
 data Settings = Settings {
-    filePaths ∷ FilePaths,
+    settingsRunSettings ∷ RunSettings,
     settingsEpsilon ∷ Maybe Double,
     settingsMatrix ∷ Pdf.Matrix,
     settingsRect ∷ Rect,
@@ -52,9 +57,9 @@ data Settings = Settings {
     narrowLines :: Pen
 }
 
-withDefaultSettings ∷ FilePaths → RecBBox → Settings
-withDefaultSettings fps bbox = Settings {
-    filePaths = fps,
+withDefaultSettings ∷ RunSettings → RecBBox → Settings
+withDefaultSettings rs bbox = Settings {
+    settingsRunSettings = rs,
     orientation = Portrait,
     projection = if width > height then "-JM60c" else "-JM100c+",
     land = Pen (Solid (Color 245 245 245)) 0,

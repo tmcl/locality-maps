@@ -1,4 +1,4 @@
-module Boundary
+module Boundary()
 where
 
 import Data.Text

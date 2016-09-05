@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module NewMap
+module NewMap()
 where
 
 import Point

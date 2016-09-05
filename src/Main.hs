@@ -7,9 +7,13 @@ import Control.Monad.Trans.Class
 import qualified Graphics.PDF as Pdf
 import EachMap
 
+import qualified Data.Map as M
+import Data.Map (Map)
+import qualified Data.ByteString.Lazy as BS
+import Data.ByteString.Lazy (ByteString)
 import UpdatedMapper
 import Unicode
-import           ClassyPrelude                (traceM)
+import           ClassyPrelude                (traceM, traceShowId, trace)
 import           Control.Monad.Trans.Resource
 import           Data.Conduit
 import qualified Data.Conduit.Binary          as CB
@@ -33,14 +37,28 @@ import Municipality
 import NewMap
 import BaseMap
 import Settings
+import SpecialCases
+
+getSpecialCases ∷ IO SpecialCaseMap
+getSpecialCases = do
+   csv ← BS.readFile "places-out.csv"
+   return $ convert (specialCases csv)
+   where
+      convert (Left e) = error e
+      convert (Right r) = r
 
 main ∷ IO ()
-main = getArgs >>= Main.mapState
+main = do
+   special ← getSpecialCases
+   getArgs >>= Main.mapState special
 
-mapState ∷ [String] → IO ()
+mapState ∷ SpecialCaseMap → [String] → IO ()
 -- mapState ("cities":source:dest:_) = mapCities (withFiles source) dest
-mapState (state:source:dest:_) = mapMunicipalitiesInState (withFiles source) (read state) dest
-mapState _ = error "I expect three arguments: a state/'cities', and source and dest folders"
+mapState scm (state:source:dest:_) =
+   runRSettingsT 
+      (mapMunicipalitiesInState (read state) dest)
+      (RunSettings (withFiles source) scm)
+mapState _ _ = error "I expect three arguments: a state/'cities', and source and dest folders"
 
 municipalitiesByFilePath ∷ FilePath → State → IO (Set Municipality)
 municipalitiesByFilePath fp state = fmap S.fromList <$> runResourceT $ CB.sourceFile (toDbf fp)
@@ -95,49 +113,53 @@ localityTypeColumn t = "_LOCA_5" `T.isSuffixOf` t || "_LOCAL_5" `T.isSuffixOf` t
 -- localityFilePathsByState ACT fps = (actLocalities fps, districtFilter)
 --    : localityFilePathsByState OT fps
 
--- muniFileName :: Municipality -> Text
+-- muniFileName ∷ Municipality -> Text
 -- muniFileName m = T.replace "/" "-" (mName m)
 
-settingsFromShapefileStream ∷ FilePaths -> Shape → Settings
-settingsFromShapefileStream fps (header, _, _) = 
-   settingsFromRecBBox fps . toRecBB . shpBB $ header
+settingsFromShapefileStream ∷ (Monad m) ⇒ Shape → RunSettingsT m Settings
+settingsFromShapefileStream (header, _, _) = 
+   settingsFromRecBBox . toRecBB . shpBB $ header
 
-settingsFromRecBBox ∷ FilePaths → RecBBox → Settings
-settingsFromRecBBox fps = withDefaultSettings fps . embiggenBoundingBox
+settingsFromRecBBox ∷ (Monad m) ⇒ RecBBox → RunSettingsT m Settings
+settingsFromRecBBox bbox = do
+   rs ← ask
+   return $ withDefaultSettings rs . embiggenBoundingBox $ bbox
 
 
-settingsFromState ∷ FilePaths → State → IO (Maybe Settings)
-settingsFromState fps state = settingsFromShapefileStream fps 
-   <$$> shapeSource (municipalityFilePathByState state fps) Nothing CL.head
+settingsFromState ∷ State → RunSettingsT IO (Maybe Settings)
+settingsFromState state = do
+   fps ← asks rsFilePaths
+   shape ← lift $ shapeSource (municipalityFilePathByState state fps) Nothing CL.head 
+   settingsFromShapefileStream <$$> shape
 
-(<$$>) ∷ (Monad m, Monad n) => (a → b) → m (n a) → m (n b)
-(<$$>) a b = fmap a <$> b
+(<$$>) ∷ (Monad m) 
+       ⇒ (a → RunSettingsT m b) 
+       → Maybe a
+       → RunSettingsT m (Maybe b)
+f <$$> v = maybe (return Nothing) f' v
+   where
+      f' v = f v ⇉ return . Just
 
-settingsFromMunicipality ∷ FilePaths → Municipality → IO (Maybe Settings)
-settingsFromMunicipality fps municipality = settingsFromRecBBox fps <$$> bbox
+settingsFromMunicipality ∷ Municipality → RunSettingsT IO (Maybe Settings)
+settingsFromMunicipality municipality = do
+   fps ← asks rsFilePaths
+   let bbox = municipalitySource fps municipality Nothing conduit
+   bbox' ← lift bbox
+   settingsFromRecBBox <$$> bbox'
   where
     conduit ∷ Sink Shape IO (Maybe RecBBox)
     conduit = CC.filter (matchMunicipality municipality)
       =$= CC.map shapeToBBox
       =$= CL.fold bigBoundingBox Nothing
-    bbox = municipalitySource fps municipality Nothing conduit
-
 
 shapeToBBox ∷ Shape → Maybe RecBBox
 shapeToBBox (_, shp, _) = shpRecBBox shp
 
-
-
--- localitySources ∷ FilePaths → Maybe RecBBox → Sink Shape IO a → IO [a]
--- localitySources fps = multiSources (localityFilePaths fps)
-
--- TODO mapMunicipality and this are ~identical + filter
--- stuffed naming convention
-
 mapMunicipality ∷ PenGetter → Municipality → SettingsT IO (Pdf.PDF XForm)
 mapMunicipality mapper muni = do
    m ← mapMuni mapper muni
-   let drawing = writeTitle (muniLongName muni) >> m
+   mCircle ← mapMuni2 mapper muni
+   let drawing = writeTitle (muniLongName muni) >> m >> mCircle
    xformify' drawing
 
 mapLocality2 ∷ Municipality 
@@ -155,9 +177,29 @@ mapLocality2 muni locality = do
 mapLocality ∷ Municipality → SettingsT IO [Pdf.PDF XForm]
 mapLocality m = do
    fps ← asks filePaths
-   localities ← lift $ localitiesByMunicipality (mName m) (municipalityFilePathByMunicipality fps m) (localityFilePaths fps)
+   manyLocalities ← lift $ 
+      localitiesByMunicipality 
+         (mName m) 
+         (municipalityFilePathByMunicipality fps m) 
+         (localityFilePaths fps)
+   cases ← asks settingsSpecialCases
+   let scs = traceShowId (M.lookup m $ traceShowId cases)
+   let localities = maybe 
+                      (S.toList manyLocalities) 
+                      (localitiesWithoutErrors $ S.toList manyLocalities) 
+                      scs
    lift $ mapM_ print localities
-   mapM (mapLocality2 m) $ S.toList localities
+   mapM (mapLocality2 m) localities
+
+localitiesWithoutErrors ∷ [Locality] → Map Text SpecialCase → [Locality]
+localitiesWithoutErrors locs maps = locs2 `without` errors2
+   where 
+      locs2 = trace (show locs) locs
+      errors2 = trace (show errors) errors
+      errors = M.keysSet $ M.filter (ApparentError ≡) maps
+
+without ∷ Ord a ⇒ [a] → Set a → [a]
+a `without` b = filter (`S.notMember` b) a
 
 writeTitle ∷ Text → Pdf.Draw ()
 writeTitle text = Pdf.drawText $ do
@@ -204,23 +246,22 @@ mapMunicipalitiesInState1 state munis = do
   liftT $ runMagic (sequence points) muniPoints
   
 mapMunicipalitiesLocally1 ∷ FilePath
-                          → FilePaths 
                           → [Municipality] 
-                          → IO ()
-mapMunicipalitiesLocally1 out fps munis = do 
+                          → RunSettingsT IO ()
+mapMunicipalitiesLocally1 out munis = do 
   traceM $ show munis
-  mapM_ (mapMunicipalityLocally1 out fps) munis
+  mapM_ (mapMunicipalityLocally1 out) munis
 
 mapMunicipalityLocally1 ∷ FilePath 
-                        → FilePaths 
-                        → Municipality → IO ()
-mapMunicipalityLocally1 out fps muni = do
-  Just settings ← settingsFromMunicipality fps muni
-  pdf2 ← runReaderT (mapMunicipalityLocally2 muni) settings
+                        → Municipality 
+                        → RunSettingsT IO ()
+mapMunicipalityLocally1 out muni = do
+  Just settings ← settingsFromMunicipality muni
+  pdf2 ← lift $ runReaderT (mapMunicipalityLocally2 muni) settings
   let state = show $ mState muni
       name = T.unpack $ muniLongName muni
       fn2 = out ⧺ "/" ⧺ name ⧺ " and " ⧺ state ⧺ ".pdf"
-  muzzle (settingsRect settings) fn2 $! pdf2
+  lift $ muzzle (settingsRect settings) fn2 $! pdf2
 
 mapMunicipalityLocally2 ∷ Municipality → SettingsT IO (Pdf.PDF ())
 mapMunicipalityLocally2 muni = do
@@ -243,13 +284,16 @@ mapMunicipalityLocally2 muni = do
   liftT $ runMagic (sequence points) muniPoints
   
 
-mapMunicipalitiesInState ∷ FilePaths → State → FilePath → IO ()
-mapMunicipalitiesInState fps state out = do
+mapMunicipalitiesInState ∷ State → FilePath → RunSettingsT IO ()
+mapMunicipalitiesInState state out = do
   let fn1 = out ⧺ "/" ⧺ show state ⧺ "1.pdf"
-  Just settings ← settingsFromState fps state
-  munis ← S.toList <$> municipalitiesByFilePath (municipalityFilePathByState state fps) state
-  muzzle (settingsRect settings) fn1 ⇇ strictly ( runReaderT (mapMunicipalitiesInState1 state munis) settings)
-  strictly $ mapMunicipalitiesLocally1 out fps munis
+  Just settings ← settingsFromState state
+  fps ← asks rsFilePaths
+  munis ← lift $ S.toList 
+    <$> municipalitiesByFilePath (municipalityFilePathByState state fps) state
+  lift $ muzzle (settingsRect settings) fn1 
+    ⇇ strictly (runReaderT (mapMunicipalitiesInState1 state munis) settings)
+  strictly $ mapMunicipalitiesLocally1 out munis
 
 strictly ∷ a → a
 strictly a = seq a a

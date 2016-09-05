@@ -1,6 +1,7 @@
 module Utils
 where
 
+import SpecialCases
 import Types
 import Point
 import Geometry.Shapefile.Conduit
@@ -29,7 +30,15 @@ bigBoundingBox' ∷ RecBBox → RecBBox → RecBBox
 bigBoundingBox' (RecBBox (x0a :+ y0a) (x1a :+ y1a)) (RecBBox (x0b :+ y0b) (x1b :+ y1b))
    = RecBBox (min x0a x0b :+ min y0a y0b) (max x1a x1b :+ max y1a y1b)
 
-type FilePathsT = ReaderT FilePaths
+type RunSettingsT = ReaderT RunSettings
+
+runRSettingsT ∷ ReaderT RunSettings m a → RunSettings → m a
+runRSettingsT = runReaderT
+
+data RunSettings = RunSettings {
+   rsFilePaths ∷ FilePaths,
+   rsSpecialCaseMap ∷ SpecialCaseMap
+}
 
 data FilePaths = FilePaths {
    states            ∷ FilePath,

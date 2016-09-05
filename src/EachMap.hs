@@ -1,4 +1,4 @@
-module EachMap (xformify', mapLoki2, mapLoc'y, mapLakes, mapRivers, mapMunis, multiSources, outlineCoordinates, mapLocalities, localityFilePaths, mapMuni, PenGetter, Drawer, xformify, municipalitySource, fillCoordinates, mapState, mapFineLines) where
+module EachMap () where
 
 import Algebra.Clipper
 import FindLocalities (localityColumnName, toClipperPolygon)
@@ -45,13 +45,6 @@ drawCirclesX ∷ RecBBox
              → SettingsT Pdf.Draw ()
 drawCirclesX bb p pp = drawCircles p (vlevify bb pp)
 
---areaSink ∷ Text → RecBBox → ConduitM Shape c IO [Point]
--- areaSink = eachPlace =$= CC.map (\p → seq p p) =$= CC.concat =$= CC.sinkList
---areaSink ∷ ConduitM Shape c IO [Point]
---areaSink = eachPolygon 
---           =$= CC.concat 
---           =$= CC.sinkList
-
 vlevify ∷ RecBBox → [Vector Point] → [Point]
 vlevify box a = smallPlaces
    where
@@ -59,9 +52,10 @@ vlevify box a = smallPlaces
       eachArea = map 
          (\l → ((/mapArea). negate . area $ l, l)) 
          a
-      b'' = filter 
-               (\(a, _) → a ≥ 0 ∧ a < 1e-4 )    
-               eachArea
+      isSmallArea (a, _) = a ≥ 0 ∧ a < 0.75e-3
+      b'' = if all isSmallArea eachArea
+            then eachArea
+            else []
       smallPlaces = map (\(_, b) → centreOf b) b''
       mapArea = area . bboxToPolygon $ box
 
@@ -69,7 +63,10 @@ centreOf ∷ Vector Point → Point
 centreOf pp = sum pp/fromIntegral (length pp)
 
 outlineSink ∷ ConduitM Shape c IO [Vector Point]
-outlineSink = eachPolygon =$= CC.map (\p → seq p p) =$= CC.concat =$= CC.sinkList
+outlineSink = eachPolygon 
+              =$= CC.map (\p → seq p p) 
+              =$= CC.concat 
+              =$= CC.sinkList
 
 mapState ∷ State → SettingsT IO (Draw ())
 mapState = mapOutline (fillCoordinates broadArea) . stateSource
@@ -101,8 +98,15 @@ mapLoki2 pen loc'y =
 mapMunis ∷ Drawer → SettingsT IO (Draw ())
 mapMunis drawer = mapOutline drawer municipalitiesSource
 
-mapMuni ∷ PenGetter → Municipality → SettingsT IO (Draw ())
+mapMuni ∷ PenGetter 
+        → Municipality 
+        → SettingsT IO (Draw ())
 mapMuni mapper = mapOutline (fillCoordinates mapper) . municipalitySource'
+
+mapMuni2 ∷ PenGetter 
+         → Municipality 
+         → SettingsT IO (Draw ())
+mapMuni2 mapper = mapCircles mapper . municipalitySource'
 
 type Sauce a = Sink Shape IO a → SettingsT IO a
 

@@ -1,6 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 
-module Map where
+module Map() where
 
 import Data.Complex
 import Data.List
