@@ -1,18 +1,15 @@
-module Settings (PenGetter, SettingsT, Color(..), Settings(..), withDefaultSettings, settingsSpecialCases, filePaths, penWidth, penColor, WritingStyle(..), Width(..), Pen(..), boundingBox, ptc, module Control.Monad.Trans.Reader)
+module Settings (PenGetter, SettingsT, Color(..), Settings(..), withDefaultSettings, settingsSpecialCases, filePaths, penWidth, penColor, WritingStyle(..), Width(..), Pen(..), ptc, module Control.Monad.Trans.Reader)
 where
 
+import SpecialCases
 import Project
 import Utils
-import Unicode
+-- import Unicode
 import Control.Monad.Trans.Reader
-import Control.Monad.Trans.Class
 import Geometry.Shapefile.Types (RecBBox(..))
 import qualified Graphics.PDF as Pdf
-import NewMap -- (Rect(..), invertScale, matrixForBBox, pageFromBBox)
+import NewMap (Rect(..), invertScale, matrixForBBox, pageFromBBox)
 import Point
-import ClassyPrelude (traceShowId)
-
-import Data.Text (Text)
 
 ptc ∷ Pen → Pdf.Color
 ptc = colorToColor . penColor
@@ -31,17 +28,14 @@ colorToColor (Color r g b) = Pdf.Rgb (toRatio r) (toRatio g) (toRatio b)
 
 type SettingsT = ReaderT Settings
 
-liftF ∷ (Monad m) ⇒ RunSettingsT m a → SettingsT m a
-liftF m = asks settingsRunSettings ⇉ lift . runReaderT m
-
 filePaths ∷ Settings → FilePaths
 filePaths = rsFilePaths . settingsRunSettings
 
+settingsSpecialCases ∷ Settings → SpecialCaseMap
 settingsSpecialCases = rsSpecialCaseMap . settingsRunSettings
 
 data Settings = Settings {
     settingsRunSettings ∷ RunSettings,
-    orientation ∷ Orientation,
     boundingBox ∷ RecBBox,
     settingsMatrix ∷ Pdf.Matrix,
     settingsEpsilon ∷ Maybe Double,
@@ -68,7 +62,6 @@ data Settings = Settings {
 withDefaultSettings ∷ RunSettings → RecBBox → Settings
 withDefaultSettings rs bbox = Settings {
     settingsRunSettings = rs,
-    orientation = Portrait,
     boundingBox = bbox,
     settingsMatrix = matrix,
     settingsEpsilon = Just $ invertScale matrix 0.33, 
@@ -101,17 +94,15 @@ withDefaultSettings rs bbox = Settings {
 }
    where 
       projector = mercator $ lowerLeft bbox
-      centrepoint = (upperRight bbox + lowerLeft bbox) / 2
-      projectedBBox = project projector bbox
-      (width :+ height) = upperRight bbox - lowerLeft bbox
+      projectedBBox = projectBBox projector bbox
       matrix = matrixForBBox rect projectedBBox
       rect = pageFromBBox projectedBBox
 
-project projector RecBBox {lowerLeft = ll, upperRight = ur} 
+projectBBox ∷ (Point → Point) → RecBBox → RecBBox
+projectBBox projector RecBBox {lowerLeft = ll, upperRight = ur} 
    = RecBBox {lowerLeft = projector ll, upperRight = projector ur}
 
 type PenGetter = Settings → Pen
-data Orientation = Portrait | Landscape
 
 data Color = Color { colorRed ∷ Int, colorBlue ∷ Int, colorGreen ∷ Int }
 
@@ -123,6 +114,7 @@ data WritingStyle
     | Water Color
     | Outline Width Color
 
+penWidth ∷ Pen → Double
 penWidth (Pen (Outline (Points w) _) _) = w
 penWidth _ = 10 
 

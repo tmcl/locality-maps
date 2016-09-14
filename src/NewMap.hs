@@ -1,11 +1,11 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module NewMap(Rect(..), bboxFromPoints, resizeBoundingBox, embiggenBoundingBox, rectToPdfRect, pageFromBBox, invertScale, matrixForBBox, addPolygonToPath)
+module NewMap(Rect(..), bboxFromPoints, resizeBoundingBox, embiggenBoundingBox, rectToPdfRect, pageFromBBox, invertScale, matrixForBBox, addPolygonToPath, clipPath)
 where
 
 import Point
 import qualified Graphics.PDF as Pdf
-import Graphics.PDF hiding (addPolygonToPath, Point)
+import Graphics.PDF hiding (addPolygonToPath, Point, boxHeight, boxWidth)
 --import Control.Monad.Unicode
 import Prelude.Unicode
 import Data.String (IsString(..))
@@ -13,16 +13,10 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Foldable
 import Data.Maybe
-import PolygonReduce
 import Geometry.Shapefile.Types (RecBBox(..), recXMin, recXMax, recYMin, recYMax, getX, getY )
 
 instance IsString PDFString where
    fromString = toPDFString
-
-data Shp = Shp {
-   shpBBox :: RecBBox,
-   shpPoints ∷ Vector Point
-}
 
 resizeBoundingBox ∷ Point → RecBBox → RecBBox
 resizeBoundingBox size (RecBBox ll ur) = RecBBox (ll-buffer) (ur+buffer)
@@ -31,15 +25,6 @@ resizeBoundingBox size (RecBBox ll ur) = RecBBox (ll-buffer) (ur+buffer)
 
 embiggenBoundingBox ∷ RecBBox → RecBBox
 embiggenBoundingBox = resizeBoundingBox 0.1
-
-mkShape ∷ Vector (Double, Double) → Shp
-mkShape points = let points' = toPoint <$> points in Shp {
-   shpBBox = embiggenBoundingBox $ bboxFromPoints points',
-   shpPoints = points'
-}
-
-toPoint ∷ (Double, Double) → Point
-toPoint (x, y) = x :+ y
 
 bboxFromPoints ∷ Vector Point → RecBBox
 bboxFromPoints = fromMaybe (RecBBox (0 :+ 0) (10 :+ 10)) . bboxFromPointsˀ
@@ -63,16 +48,6 @@ fits ∷ RecBBox → Point → Bool
 box `fits` (x:+y) = recXMin box ≤ x ∧ x ≤ recXMax box
                   ∧ recYMin box ≤ y ∧ y ≤ recYMax box
 
-
-myDocument ∷ Shp → PDF ()
-myDocument points = do
-   let pageSize = pageFromBBox (shpBBox points)
-       pageSize' = Just $ rectToPdfRect pageSize
-   page1 ← addPage pageSize' 
-   page2 ← addPage pageSize' 
-   basemap ← mapOnPage pageSize points
-   createPage1Content basemap page1
-   createPage2Content basemap page2
 
 rectToPdfRect ∷ Rect → PDFRect
 rectToPdfRect (Rect x0 y0 x1 y1) = 
@@ -121,37 +96,5 @@ data Rect = Rect PDFFloat PDFFloat PDFFloat PDFFloat
 invertScale ∷ Matrix → PDFFloat → PDFFloat
 invertScale (Matrix sx _ _ _ _ _) width = width / sx
 
-mapOnPage ∷ Rect → Shp → PDF (PDFReference PDFXForm)
-mapOnPage rect@(Rect x0 y0 x1 y1) shape = 
-   createPDFXForm x0 y0 x1 y1 $ do
-      let matrix = matrixForBBox rect (shpBBox shape)
-      applyMatrix matrix
-      let width = invertScale matrix 1
-      setWidth width
-      strokeColor green
-      addPolygonToPath $ 
-         reduce 0.005 $ clipPath (shpBBox shape) $ shpPoints shape
-      strokePath
-
 addPolygonToPath ∷ Vector Point → Draw ()
 addPolygonToPath = Pdf.addPolygonToPath . V.toList
-
-createPage1Content ∷ PDFReference PDFXForm 
-                   → PDFReference PDFPage 
-                   → PDF ()
-createPage1Content basemap page = drawWithPage page $ do
-      strokeColor red
-      setWidth 0.5
-      stroke $ Rectangle (10 :+ 0) (200 :+ 300)
-      drawXObject basemap
-      return ()
-
-createPage2Content ∷ PDFReference PDFXForm 
-                   → PDFReference PDFPage 
-                   → PDF ()
-createPage2Content basemap page = drawWithPage page $ do
-      strokeColor blue
-      setWidth 0.5
-      fill $ Rectangle (00 :+ 10) (300 :+ 200)
-      drawXObject basemap
-      return ()

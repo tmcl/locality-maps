@@ -106,12 +106,13 @@ getLocalLands ∷ Maybe State → SettingsT IO [Vector Point]
 getLocalLands state = do
    bbox ← asks boundingBox
    fps ← asks filePaths
-   let filter = maybe (const True) matchState state
+   let stateMatcher = maybe (const True) matchState state
    lift $ multiSources 
-            [(auStates fps, filter)] 
+            [(auStates fps, stateMatcher)] 
             (Just bbox) 
             getLandShapes
 
+getLandShapes ∷ ConduitM Shape c IO [Vector Point]
 getLandShapes = CC.filter (not . matchFeatCode "sea")
                 =$= eachPolygon 
                 =$= CC.concat

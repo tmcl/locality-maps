@@ -15,6 +15,7 @@ transverseMercator' (p :+ q) (λ :+ φ) = x :+ y
       x = 0.5 * k0 * a * log ((1 + xFact)/(1 - xFact))
       y = k0 * a * (atan $! (tan φ*sec λ))
 
+sec ∷ Floating a ⇒ a → a
 sec θ = 1/cos θ
 
 mercator ∷ Point → Point → Point
@@ -32,6 +33,7 @@ equirectangular' (λ0 :+ φ1) (λ :+ φ) = x :+ y
       x = (λ - λ0) * cos φ1
       y = φ - φ1
 
+degToRad ∷ Floating a ⇒ a → a
 degToRad x = π/180 * x
 
 mercator' ∷ Point → Point → Point

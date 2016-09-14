@@ -7,7 +7,6 @@ import Data.Maybe
 import Algebra.Clipper
 import FindLocalities (localityColumnName, toClipperPolygon)
 import qualified Data.Text as T
-import qualified Data.Vector as V
 import Unicode
 import UpdatedMapper
 import qualified Data.Conduit.Combinators as CC
@@ -20,20 +19,19 @@ import Utils
 import Geometry.Shapefile.Conduit
 import Data.Text (Text)
 import Control.Monad.Trans.Class
-import ClassyPrelude (traceShowId, trace, traceM)
 
 type Draw = Pdf.Draw
 
 
 mapOutline ∷ Drawer → Sauce [Vector Point] → SettingsT IO (Draw ())
-mapOutline drawer source = liftT . drawer ⇇ source outlineSink
+mapOutline drawer src = liftT . drawer ⇇ src outlineSink
 
 mapCircles ∷ PenGetter → Sauce [Vector Point] → SettingsT IO (Draw ())
-mapCircles pen source = do
+mapCircles pen src = do
    pen' ← asks pen
    bb ← asks boundingBox
    s ← ask
-   points ← source outlineSink
+   points ← src outlineSink
    liftT $ lift $ drawCirclesX s bb pen' points
 
 drawCirclesX ∷ Settings
@@ -44,12 +42,12 @@ drawCirclesX ∷ Settings
 drawCirclesX s bb p pp = drawCircles s p (vlevify bb pp)
 
 vlevify ∷ RecBBox → [Vector Point] → (Point, RecBBox)
-vlevify box a = (smallPlaces, smallPlacesBBox)
+vlevify box points = (smallPlaces, smallPlacesBBox)
    where
       area = polygonArea . toClipperPolygon
       eachArea = map 
          (\l → ((/mapArea). negate . area $ l, l)) 
-         a
+         points
       isSmallArea (a, _) = a ≥ 0 ∧ a < 0.5e-3
       circleables = if all isSmallArea eachArea
             then eachArea
@@ -80,17 +78,19 @@ mapRivers = mapOutline (outlineCoordinates riverPen) riverSource
 
 mapLakes ∷ SettingsT IO (Pdf.PDF XForm)
 mapLakes = do
-   lakes ← lakeSource outlineSink
+   lakePoints ← lakeSource outlineSink
    waterPen ← asks water
    river ← asks riverPen
    settings ← ask
    xformify' $ do
       applySettings1 settings
-      fillPoints1 settings waterPen lakes
-      drawPoints1 settings river lakes
+      fillPoints1 settings waterPen lakePoints
+      drawPoints1 settings river lakePoints
       
+xformify' ∷ Draw () → ReaderT Settings IO (Pdf.PDF XForm)
 xformify' = liftT . xformify . lift
 
+stripSuffix ∷ Text → Text → Text
 stripSuffix s t = fromMaybe t (T.stripSuffix s t)
 
 mapLoc'y ∷ [Locality] → SettingsT IO (Draw ())
@@ -118,15 +118,13 @@ mapMunis drawer = mapOutline drawer municipalitiesSource'
 mapMuni ∷ PenGetter 
         → Municipality 
         → SettingsT IO (Draw ())
-mapMuni mapper m = do
-   traceM (show $ mName m) 
-   mapOutline (fillCoordinates mapper) . municipalitySource' $ m
+mapMuni mapper =
+   mapOutline (fillCoordinates mapper) . municipalitySource'
 
 mapMuniCropped ∷ PenGetter 
         → Municipality 
         → SettingsT IO (Draw ())
 mapMuniCropped mapper m = do
-   traceM (show $ mName m) 
    p ← municipalitySource' m outlineSink
    lands ← getLands 
    let points = operate (∩) lands p
@@ -178,8 +176,9 @@ municipalitiesSource' = multiSources' municipalityFilePaths
 localitiesSource ∷ Sauce [Vector Point]
 localitiesSource = multiSources' localityFilePaths
 
+-- todo i have defined this function many times
 orList ∷ [a → Bool] → a → Bool
-orList predicates a = foldl' (\b pred → (b ∨ pred a)) False predicates
+orList predicates a = foldl' (\b p → (b ∨ p a)) False predicates
 
 getLocalitiesByNames ∷ [Text] → Sink Shape IO a → RunSettingsT IO a
 getLocalitiesByNames localities sink = do
@@ -192,10 +191,6 @@ getLocalitiesByNames localities sink = do
 localitySourceMany ∷ [Locality] → Sauce [Vector Point]
 localitySourceMany localities sink = 
    localitiesSource (CC.filter (orList (map matchLocality localities)) =$= sink)
-
-localitySource ∷ Locality → Sauce [Vector Point]
-localitySource locality sink = 
-   localitiesSource (CC.filter (matchLocality locality) =$= sink)
 
 localitySourceLike ∷ Locality → Sauce [Vector Point]
 localitySourceLike locality sink = 

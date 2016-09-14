@@ -31,12 +31,11 @@ import           Data.Dbase.Conduit
 import           Data.Set                     (Set)
 import qualified Data.Set                     as S
 import qualified Data.Vector                  as V
-import           Data.Vector                  (Vector)
 import           Data.Text                    (Text)
 import qualified Data.Text                    as T
 import           Geometry.Shapefile.Conduit
 import           System.Environment
-import           FindLocalities hiding (lgaColumnName)
+import           FindLocalities
 import Data.List
 import Utils 
 
@@ -102,50 +101,7 @@ municipalitiesByFilePath fp state = fmap S.fromList <$> runResourceT $ CB.source
   =$= CC.filter ((0 <) . length)
   =$= CL.mapMaybe uncons
   =$= CC.map fst
-  -- =$= CC.take 2 -- todo while debugging only
   $$ CC.sinkList
-
-
-allFilter ∷ a → Bool
-allFilter = const True
-
-localityFilter ∷ Shape → Bool
-localityFilter = matchTextDbfField "G" localityTypeColumn
-
-districtFilter ∷ Shape → Bool
-districtFilter = matchTextDbfField "D" localityTypeColumn
-
-localityTypeColumn ∷ Text → Bool
-localityTypeColumn t = "_LOCA_5" `T.isSuffixOf` t || "_LOCAL_5" `T.isSuffixOf` t
-
--- municipalityStateName ∷ Municipality → Text
--- municipalityStateName = stateName . mState
--- 
--- stateName ∷ State → Text
--- stateName NSW = "New South Wales"
--- stateName Vic = "Victoria"
--- stateName Qld = "Queensland"
--- stateName WA = "Western Australia"
--- stateName SA = "South Australia"
--- stateName Tas = "Tasmania"
--- stateName NT = "Northern Territory"
--- stateName OT = "Other Territories"
--- stateName ACT = "ACT + Jervis Bay"
-
--- localityFilePathsByState ∷ State → FilePaths → Yielder
--- localityFilePathsByState NSW fps = [(nswLocalities fps, allFilter)]
--- localityFilePathsByState Vic fps = [(vicLocalities fps, allFilter)]
--- localityFilePathsByState Qld fps = [(qldLocalities fps, allFilter)]
--- localityFilePathsByState WA  fps = [(waLocalities  fps, allFilter)]
--- localityFilePathsByState SA  fps = [(saLocalities  fps, localityFilter)]
--- localityFilePathsByState Tas fps = [(tasLocalities fps, allFilter)]
--- localityFilePathsByState NT  fps = [(ntLocalities  fps, allFilter)]
--- localityFilePathsByState OT  fps = [(otLocalities  fps, allFilter)]
--- localityFilePathsByState ACT fps = (actLocalities fps, districtFilter)
---    : localityFilePathsByState OT fps
-
--- muniFileName ∷ Municipality -> Text
--- muniFileName m = T.replace "/" "-" (mName m)
 
 settingsFromShapefileStream ∷ (Monad m) ⇒ Shape → RunSettingsT m Settings
 settingsFromShapefileStream (header, _, _) = do
@@ -171,7 +127,7 @@ settingsFromState state = do
        → RunSettingsT m (Maybe b)
 f <$$> v = maybe (return Nothing) f' v
    where
-      f' v = f v ⇉ return . Just
+      f' v' = f v' ⇉ return . Just
 
 metros ∷ ByteString → [MetroArea]
 metros = decoded . decodeByName
@@ -185,12 +141,6 @@ metrosByCity city bs = map metroAreaMuni $ filter (\(MetroArea c _) → c ≡ ci
 getMetrosByCity ∷ City → IO [MunicipalityShortName]
 getMetrosByCity city = metrosByCity city <$> BS.readFile "metro.csv"
 
-anyMatch ∷ [a → Bool] → a → Bool
-anyMatch fs s = or (applyMap fs s)
-
-applyMap ∷ [a → b] → a → [b]
-applyMap fs v = map ($ v) fs
-
 bboxFromMunicipality ∷ Municipality → RunSettingsT IO (Maybe RecBBox)
 bboxFromMunicipality muni = do
    fps ← asks rsFilePaths
@@ -203,8 +153,8 @@ bboxFromMunicipalities munis = do
    bboxen ← mapM bboxFromMunicipality munis ∷ RunSettingsT IO [Maybe RecBBox]
    liftT $ lift $ foldl' bigBoundingBox Nothing bboxen
 
-settingsFromMunicipalities ∷ [Municipality] → State → RunSettingsT IO (Maybe Settings)
-settingsFromMunicipalities munis state = do
+settingsFromMunicipalities ∷ [Municipality] → RunSettingsT IO (Maybe Settings)
+settingsFromMunicipalities munis = do
    bbox' ← bboxFromMunicipalities munis
    rs ← ask
    (return . settingsFromRecBBox rs 0.05) <$$> bbox'
@@ -212,7 +162,7 @@ settingsFromMunicipalities munis state = do
 settingsFromCity ∷ City → RunSettingsT IO (Maybe Settings)
 settingsFromCity city = do
    munis ← getMunicipalities city
-   settingsFromMunicipalities munis (cityToState city)
+   settingsFromMunicipalities munis
 
 settingsFromMunicipality ∷ RunSettings 
                          → Municipality 
@@ -289,9 +239,6 @@ writeTitle text = Pdf.drawText $ do
    Pdf.renderMode Pdf.FillText
    Pdf.displayText (Pdf.toPDFString $ T.unpack text)
 
--- todo specialcase mackay
-
-
 muzzle ∷ Rect → FilePath → Pdf.PDF () → IO ()
 muzzle rect out = Pdf.runPdf 
   out
@@ -309,12 +256,12 @@ mapMunicipalities =
    xformify' ⇇ mapMunis (outlineCoordinates municipalLines)
 
 mapMunicipalitiesInState1 ∷ [State] → [Municipality] → SettingsT IO (Pdf.PDF ())
-mapMunicipalitiesInState1 states munis = do
+mapMunicipalitiesInState1 states_ munis = do
   lift $ mapM_ (print . muniLongName) munis
   coastPoints ← mapCoast Nothing 
   riverPoints ← xformify' ⇇ mapRivers
   urbanPoints ← mapUrbanAreas 
-  statePoints ← xformify' ⇇ mapStates states
+  statePoints ← xformify' ⇇ mapStates states_
   munisPoints ← mapMunicipalities 
   traceM $ show munis
   let points = [coastPoints, 
@@ -368,7 +315,7 @@ class Show a ⇒ IMappable a where
 instance IMappable Municipalities where
    getStates (Municipalities m mm) = map mState (m:mm)
    getMunicipalities (Municipalities m mm) = return (m:mm)
-   getSettings (Municipalities m mm) = settingsFromMunicipalities (m:mm) (mState m)
+   getSettings (Municipalities m mm) = settingsFromMunicipalities (m:mm)
    getSettingsByMunicipality _ settings _ _ = return $ return settings
 
 instance IMappable City where
@@ -414,12 +361,6 @@ mapMunicipalitiesInMappable it out = do
       ⇇ runReaderT (mapMunicipalitiesInState1 (getStates it) munis) settings
    mapM_ mapLocally munis
 
-bboxFromPolygons ∷ [Vector Point] → Maybe RecBBox
-bboxFromPolygons = foldl' addToBoundingBox Nothing
-
-addToBoundingBox ∷ Maybe RecBBox → Vector Point → Maybe RecBBox
-addToBoundingBox box p = bigBoundingBox box (Just $ bboxFromPoints p)
-
 bboxSink ∷ Consumer Shape IO (Maybe RecBBox)
 bboxSink = CL.fold (\b (_, a, _) → bigBoundingBox b (shpRecBBox a)) Nothing
 
@@ -457,8 +398,6 @@ mapLocalityAsMappable them out = do
 orF ∷ (a → Bool) → (a → Bool) → a → Bool
 orF p q a = p a ∨ q a
 
-municipalityFilePathByCity = municipalityFilePathByState . cityToState
-
 filterMunis ∷ [MunicipalityShortName] → State → [Municipality] → [Municipality]
 filterMunis toKeep state = filter (\s → mState s ≡ state ∧ mName s ∈ toKeep)
 
@@ -474,42 +413,3 @@ combineXFormsIntoPages maps pages = do
    rect ← asks settingsRect
    lift $ mozzle maps' rect
    lift $ mapM_ (\pageMap → mozzle (maps' ⧺ [pageMap]) rect) pages'
-
---todo hm. convert to conduit?
-{- todo this algorithm leaves everything too griddy
-reducePrecision ∷ (RealFloat a, RealFloat b) ⇒ Int → a → b
-reducePrecision places' number = encodeFloat (s `div` (floatRadix number)^amount) places
-   where
-      places = -places'
-      (s, e) = decodeFloat number
-      amount = places - e
-
-isLike ∷ (Num a, Ord a) ⇒ a → a → a → Bool
-isLike epsilon x y = x - epsilon < y && x + epsilon > y
-
-reduceShapePrecision ∷ RecBBox → [Point] → [Point]
-reduceShapePrecision bbox boxes = 
-   if range < 0.5 
-      then boxes 
-      else reduceShapePrecision' . reverse $ boxes
-   where
-     range = max (recXMax bbox - recXMin bbox) (recYMax bbox - recYMin bbox)
-     places 
-        | range < 1 = 11
-        | 1 <= range && range < 2 = 10 
-        | 2 <= range && range < 5 = 9 
-        | 5 <= range && range < 10 = 8
-        | otherwise = 7
-     e = encodeFloat 2 (-(places + 2))
-     isNear = isLike e
-     reduceShapePrecision' = foldr reducer []  
-     reducer (x1', y1') points@((x2, y2):_) = 
-         if x1 `isNear` x2 && y1 `isNear` y2 then 
-            points 
-         else 
-            (x1, y1):points
-         where
-           x1 = reducePrecision places x1'
-           y1 = reducePrecision places y1'
-     reducer new old = new:old -}
-

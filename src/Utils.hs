@@ -118,6 +118,7 @@ municipalityFilePathByMunicipality ∷ FilePaths → Municipality → FilePath
 municipalityFilePathByMunicipality fps muni = municipalityFilePathByState (mState muni) fps
 
 municipalityFilePathByState ∷ State → FilePaths → FilePath
+municipalityFilePathByState ID = idRegencies
 municipalityFilePathByState PNG = pngMunicipalities
 municipalityFilePathByState NSW = nswMunicipalities
 municipalityFilePathByState Vic = vicMunicipalities

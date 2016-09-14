@@ -32,16 +32,6 @@ specialNSW "THE COUNCIL OF THE MUNICIPALITY OF KIAMA" = "KIAMA municipality"
 specialNSW "THE COUNCIL OF THE MUNICIPALITY OF HUNTERS HILL" = "Hunters Hill municipality"
 specialNSW t = t
 
-fixThe ∷ Text → Text
-fixThe t
-   | needsThe
-   ∧ not ("The " `isPrefixOf` t) = concat ["The ", t]
-   | otherwise = t
-   where 
-      needsThe = " District" `isSuffixOf` t
-                  ∨ " Region" `isSuffixOf` t
-                  ∨ " Rural City" `isSuffixOf` t
-
 districtFrom ∷ Text → Text → Text
 districtFrom prefix t = concat [remove prefix t, " District"]
 

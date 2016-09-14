@@ -1,13 +1,12 @@
-module PolygonReduce (reduce)
+module PolygonReduce (reduce, itWorks)
 where
 
 import Point
 import Prelude.Unicode
 import Data.Monoid
-import Data.Complex
 import Data.Foldable
 import Data.Vector hiding (length, foldl', all)
-import Prelude (Eq, Show, show, error, (+), (>), ($), (<), (*), (^^), sqrt, abs, (-), (/), Int, Double, Bool(..))
+import Prelude (Show, show, error, (+), (>), ($), (<), (*), (^^), sqrt, abs, (-), (/), Int, Double, Bool(..))
 import Control.Applicative
 
 perpendicularDistance ∷ Point → Point → Point → Double

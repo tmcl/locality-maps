@@ -1,16 +1,13 @@
 module UpdatedMapper(drawPoints1, matchState, statesSource, applySettings1, XForm, fillPoints1, liftT, makeXForm1, applySettings, fillPoints2, multiSources, shapeSource, drawPoints, toDbf, eachPolygon, eachPlace, bboxToPolygon, drawCircles, module Point) where
 
 import Unicode
-import Project
 import Point
 import Data.Text (Text)
-import FindLocalities
 import Data.Conduit
 import qualified Data.Conduit.Combinators as CC
 import Geometry.Shapefile.Conduit
 import Settings
 import Utils
-import Data.Maybe
 import System.IO
 import System.FilePath
 import qualified Graphics.PDF as Pdf
@@ -38,11 +35,13 @@ stateCode SA = 6
 stateCode Tas = 7
 stateCode Vic = 8
 stateCode WA = 9
+stateCode PNG = 99
+stateCode ID = 98
 
 matchState ∷ State → Shape → Bool
 matchState s = matchNumericDbfField (stateCode s) stateCodeColumnName
 
-liftT ∷ (Monad m, Monad n) ⇒ ReaderT r n a → ReaderT r m (n a)
+liftT ∷ (Monad m) ⇒ ReaderT r n a → ReaderT r m (n a)
 liftT = mapReaderT return
 
 applySettings1 ∷ Settings → Pdf.Draw ()
@@ -67,8 +66,6 @@ drawCircles settings color points =
    where 
       project = projection settings
       RecBBox ll ur  = snd points
-      projectedLL = project ll  
-      projectedUR = project ur
       (width :+ height) = ur - ll
       diameter = max width height
       projected = project $ fst points
@@ -80,11 +77,8 @@ drawCircle s color (x :+ y) w = do
                           (Points 8) 
                           (penColor color) }
    usePen pen s
-   let bbox = boundingBox s
-       penWidth = invertScale (settingsMatrix s) 8
-       width :+ height = upperRight bbox - lowerLeft bbox
-       -- w = width * 0.05
-   Pdf.addShape (Pdf.Circle x y (w+2*penWidth))
+   let width = invertScale (settingsMatrix s) 8
+   Pdf.addShape (Pdf.Circle x y (w+2*width))
    Pdf.strokePath
 
 
@@ -112,7 +106,6 @@ multiSources yielder bbox sink = do
          filePath 
          bbox 
          (CC.filter filter' =$= CC.sinkList)
-
 
 withShpFile ∷ FilePath → (Handle → Handle → IO a) → IO a
 withShpFile filePath cb =
@@ -173,10 +166,6 @@ usePen color s = do
    Pdf.setWidth (w * points)
    Pdf.strokeColor (ptc color)
 
-whenˀ ∷ Monad m ⇒  Maybe (m ()) → m ()
-whenˀ (Just foo) = foo
-whenˀ Nothing = return ()
-
 preparePoints ∷ Settings 
                → [Vector Point] 
                → Pdf.Draw () 
@@ -185,18 +174,12 @@ preparePoints settings points = do
        bbox = boundingBox settings
        theProjection = projection settings
        reducer = maybe id reduce eps
-       clipPath _ = id -- todo
        project = V.map theProjection
        addSimplifiedPolygonToPath = addPolygonToPath 
                                   . project 
                                   . reducer 
                                   . clipPath bbox
    mapM_ addSimplifiedPolygonToPath points
-
-preparePoints1 ∷ [Vector Point] → SettingsT Pdf.Draw () 
-preparePoints1 points = do
-   settings ← ask
-   lift $ preparePoints settings points
 
 orM ∷ [a → Bool] → a → Bool
 orM [] _ = False
