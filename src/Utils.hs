@@ -1,4 +1,4 @@
-module Utils
+module Utils(bigBoundingBox', municipalityFilePaths, provinces, states, localityFilePaths, RunSettings(..), RunSettingsT, FilePaths(..), ShapeSource, Yielder, bigBoundingBox, readLgaColumnLongName, withFiles, runRSettingsT, lgaColumnName, pointsFromRecContents, matchMunicipality, municipalityFilePathByMunicipality, municipalityFilePathByState, readLgaColumnName, bboxToPolygon, upperLeft, lowerRight)
 where
 
 import SpecialCases
@@ -12,6 +12,19 @@ import Prelude.Unicode
 import Control.Monad.Trans.Reader
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+
+bboxToPolygon ∷ RecBBox → Vector Point
+bboxToPolygon box = V.fromList [
+   lowerLeft box,
+   lowerRight box,
+   upperRight box,
+   upperLeft box,
+   lowerLeft box]
+
+lowerRight ∷ RecBBox → Point
+lowerRight box = recXMax box :+ recYMin box
+upperLeft ∷ RecBBox → Point
+upperLeft box = recXMin box :+ recYMax box
 
 pointsFromRecContents ∷ RecContents → [Vector Point]
 pointsFromRecContents RecPolygon{recPolPoints=r} = use r
@@ -41,7 +54,11 @@ data RunSettings = RunSettings {
 }
 
 data FilePaths = FilePaths {
-   states            ∷ FilePath,
+   auStates          ∷ FilePath,
+   pngProvinces      ∷ FilePath,
+   idProvinces       ∷ FilePath,
+   idRegencies       ∷ FilePath,
+   pngMunicipalities ∷ FilePath,
    nswLocalities     ∷ FilePath,
    nswMunicipalities ∷ FilePath,
    vicLocalities     ∷ FilePath,
@@ -61,13 +78,18 @@ data FilePaths = FilePaths {
    otLocalities      ∷ FilePath,
    otMunicipalities  ∷ FilePath,
    urbanAreas        ∷ FilePath,
+   reserves ∷ FilePath,
    lakes ∷ FilePath,
    rivers ∷ FilePath
 }
 
 withFiles ∷ FilePath → FilePaths
 withFiles sourceFolder = FilePaths {
-    states            = sourceFolder ⧺ "/cth/GEODATA COAST 100k/australia/cstauscd_r.shp",
+    auStates          = sourceFolder ⧺ "/cth/GEODATA COAST 100k/australia/cstauscd_r.shp",
+    pngProvinces      = sourceFolder ⧺ "/misc/PNG_polbnd_adm1_2015_nso/PNG_polbnda_adm1_2015_nso.gda94.shp",
+    idProvinces = sourceFolder ⧺ "/misc/indonesia level 1/archive gda94.shp",
+    idRegencies = sourceFolder ⧺ "/misc/idn_bnd_a2_2013_bps_a/idn_bnd_a2_2013_bps_a gda94.shp",
+    pngMunicipalities = sourceFolder ⧺ "/misc/PNG_polbnd_adm2_2015_nso/PNG_polbnda_adm2_2015_nso.gda94.shp",
     nswMunicipalities = sourceFolder ⧺ "/cth/nswlgapolygonshp/NSW_LGA_POLYGON_shp.shp",
     vicMunicipalities = sourceFolder ⧺ "/cth/VICLGAPOLYGON/VIC_LGA_POLYGON_shp.shp",
     qldMunicipalities = sourceFolder ⧺ "/cth/QLDLGAPOLYGON/QLD_LGA_POLYGON_shp.shp",
@@ -87,7 +109,8 @@ withFiles sourceFolder = FilePaths {
     ntLocalities      = sourceFolder ⧺ "/cth/NTLOCALITYPOLYGON/NT_LOCALITY_POLYGON_shp.shp",
     otLocalities      = sourceFolder ⧺ "/cth/OTLOCALITYPOLYGON/OT_LOCALITY_POLYGON_shp.shp",
     urbanAreas        = sourceFolder ⧺ "/abs/1270055004_sos_2011_aust_shape/SOS_2011_AUST.shp",
-    lakes            = sourceFolder ⧺ "/cth/d84e51f0-c1c1-4cf9-a23c-591f66be0d40/filtered/waterbodies.shp",
+    reserves          = sourceFolder ⧺ "/cth/96ebf889-f726-4967-9964-714fb57d679b/reserves filtered.shp",
+    lakes             = sourceFolder ⧺ "/cth/d84e51f0-c1c1-4cf9-a23c-591f66be0d40/filtered/waterbodies.shp",
     rivers            = sourceFolder ⧺ "/cth/d84e51f0-c1c1-4cf9-a23c-591f66be0d40/filtered/streams.shp"
    }
 
@@ -95,6 +118,7 @@ municipalityFilePathByMunicipality ∷ FilePaths → Municipality → FilePath
 municipalityFilePathByMunicipality fps muni = municipalityFilePathByState (mState muni) fps
 
 municipalityFilePathByState ∷ State → FilePaths → FilePath
+municipalityFilePathByState PNG = pngMunicipalities
 municipalityFilePathByState NSW = nswMunicipalities
 municipalityFilePathByState Vic = vicMunicipalities
 municipalityFilePathByState Qld = qldMunicipalities
@@ -103,11 +127,63 @@ municipalityFilePathByState SA  = saMunicipalities
 municipalityFilePathByState Tas = tasMunicipalities
 municipalityFilePathByState NT  = ntMunicipalities
 municipalityFilePathByState OT  = otMunicipalities
-municipalityFilePathByState ACT  = actMunicipalities
+municipalityFilePathByState ACTg = actMunicipalities
+municipalityFilePathByState ACTd = actMunicipalities
 
 type ShapeSource = (FilePath, Shape → Bool)
 
 type Yielder = [ShapeSource]
+
+allFilter ∷ a → Bool
+allFilter = const True
+
+localityFilter ∷ Shape → Bool
+localityFilter = matchTextDbfField "G" localityTypeColumn
+
+districtFilter ∷ Shape → Bool
+districtFilter = matchTextDbfField "D" localityTypeColumn
+
+localityTypeColumn ∷ Text → Bool
+localityTypeColumn t 
+   = any (`T.isSuffixOf` t) ["_LOCA_5", "_LOCAL_5"]
+
+municipalityFilePaths ∷ FilePaths → Yielder
+municipalityFilePaths fps = 
+   [(pngMunicipalities fps, allFilter),
+    (idRegencies fps, allFilter),
+    (nswMunicipalities fps, allFilter),
+    (vicMunicipalities fps, allFilter),
+    (qldMunicipalities fps, allFilter),
+    (waMunicipalities fps, allFilter),
+    (saMunicipalities fps, allFilter),
+    (tasMunicipalities fps, allFilter),
+    (ntMunicipalities fps, allFilter),
+    (actMunicipalities fps, allFilter),
+    (otMunicipalities fps, allFilter)]
+
+states ∷ FilePaths → Yielder
+states fps =
+   [(pngProvinces fps, allFilter),
+    (idProvinces fps, allFilter),
+    (auStates fps, allFilter)]
+
+provinces ∷ FilePaths → Yielder
+provinces fps =
+   [(pngProvinces fps, allFilter),
+    (idProvinces fps, allFilter)]
+
+localityFilePaths ∷ FilePaths → Yielder
+localityFilePaths fps = 
+   [(nswLocalities fps, allFilter),
+    (vicLocalities  fps, allFilter),
+    (qldLocalities  fps, allFilter),
+    (waLocalities fps, allFilter),
+    (saLocalities fps, localityFilter),
+    (tasLocalities  fps, allFilter),
+    (ntLocalities fps, allFilter),
+    (otLocalities fps, allFilter),
+    (actLocalities fps, districtFilter)]
+
 
 matchMunicipality ∷ Municipality → Shape → Bool
 matchMunicipality m = matchTextDbfField (mName m) lgaColumnName

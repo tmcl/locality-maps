@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module NewMap()
+module NewMap(Rect(..), bboxFromPoints, resizeBoundingBox, embiggenBoundingBox, rectToPdfRect, pageFromBBox, invertScale, matrixForBBox, addPolygonToPath)
 where
 
 import Point
@@ -83,7 +83,7 @@ pageFromBBox box = Rect 0 0 maxX maxY
    where
       width = recXMax box - recXMin box
       height = recYMax box - recYMin box
-      multiplier = if width > height then 2000 / width else 2000 / height
+      multiplier = if width > height then 1000 / width else 1000 / height
       maxX = width * multiplier
       maxY = height * multiplier
 

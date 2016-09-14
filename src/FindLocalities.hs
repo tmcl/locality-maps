@@ -1,4 +1,4 @@
-module FindLocalities() where
+module FindLocalities(localitiesByMunicipality, localitiesByBoundingBox, shpDbfToPolygonsInPolygonsConduit, makeShpDbfConduit, toClipperPolygons, localityColumnName, toClipperPolygon, fromClipperPolygon) where
 
 import Point
 import Algebra.Clipper
@@ -22,9 +22,6 @@ import Types
 
 localityColumnName :: Text -> Bool
 localityColumnName t = "_LOCA_2" `T.isSuffixOf` t || "_LOCAL_2" `T.isSuffixOf` t
-
-typeColumnName :: Text -> Bool
-typeColumnName t = "_LOCA_5" `T.isSuffixOf` t || "_LOCAL_5" `T.isSuffixOf` t
 
 makeShpDbfConduit :: (MonadIO m, MonadIO m1) =>
                      FilePath
@@ -58,18 +55,38 @@ fromClipperPoint :: IntPoint -> Point
 fromClipperPoint (IntPoint x y) = 
    (fromIntegral x/bigNum) :+ (fromIntegral y/bigNum)
 
-localitiesByMunicipality :: T.Text -> FilePath -> Yielder -> IO (Set Locality)
+localitiesByMunicipality ∷ T.Text 
+                         → FilePath 
+                         → Yielder 
+                         → IO (Set Locality)
 localitiesByMunicipality municipality municipalities localities = do
-  shapes <- shapesByName municipalities lgaColumnName municipality
+  shapes ← shapesByName municipalities lgaColumnName municipality
   let (polygons', bbox') = unzip $ concatMap toClipperPolygons shapes
       polygons = Polygons polygons'
       bbox = foldl bigBoundingBox Nothing bbox'
-  locs <- mapM (searcher polygons bbox) localities
+  localitiesByPolygons polygons bbox localities
+
+localitiesByPolygons ∷ Polygons  
+                     → Maybe RecBBox 
+                     → Yielder 
+                     → IO (Set Locality)
+localitiesByPolygons polygons bboxˀ localities = do
+  locs ← mapM (searcher polygons bboxˀ) localities
   return $ S.fromList (concat locs)
 
-searcher ∷ Polygons → Maybe RecBBox → ShapeSource → IO [Text]
+localitiesByBoundingBox ∷ RecBBox 
+                        → Yielder 
+                        → IO (Set Locality)
+localitiesByBoundingBox bbox =
+   localitiesByPolygons 
+      (Polygons [toClipperPolygon $ bboxToPolygon bbox])
+      (Just bbox)
+
+searcher ∷ Polygons 
+         → Maybe RecBBox 
+         → ShapeSource → IO [Text]
 searcher polygons bbox yielder = makeShpDbfConduit (fst yielder) (\h1 h2 -> 
-      cdt (snd yielder) bbox polygons h1 h2 
+      shpDbfToPolygonsInPolygonsConduit (snd yielder) bbox polygons h1 h2 
       =$= CC.map snd
       =$= CL.mapMaybe readChar
       $$ CC.sinkList)
@@ -78,8 +95,13 @@ readChar :: DbfField -> Maybe Text
 readChar (DbfFieldCharacter c) = Just c
 readChar _ = Nothing
  
-cdt :: (Shape -> Bool) -> Maybe RecBBox -> Polygons -> Source IO ByteString -> Source IO ByteString -> ConduitM () ([(Polygon, Maybe RecBBox)], DbfField) IO ()
-cdt shapeFilter bbox polygons shpH dbfH =
+shpDbfToPolygonsInPolygonsConduit ∷ (Shape → Bool) 
+    → Maybe RecBBox 
+    → Polygons 
+    → Source IO ByteString 
+    → Source IO ByteString 
+    → ConduitM () ([(Polygon, Maybe RecBBox)], DbfField) IO ()
+shpDbfToPolygonsInPolygonsConduit shapeFilter bbox polygons shpH dbfH =
   shpDbfConduit bbox shpH dbfH
     =$= CC.filter shapeFilter
     =$= CC.map (\l@(_, _, c) -> (toClipperPolygons l, shapeFieldByColumnNameRule localityColumnName c))

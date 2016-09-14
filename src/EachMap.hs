@@ -1,8 +1,13 @@
-module EachMap () where
+module EachMap (getLocalitiesByNames, localitySourceMany, outlineSink, mapMuniCropped, municipalitySourceByState, mapStates, municipalitiesSource, mapRivers, mapLakes, fillCoordinates, mapMuni, mapMuni2, municipalitySource, mapMunis, mapLocalities, xformify', outlineCoordinates, localityFilePaths, mapLoc'y) where
 
+import Data.List (foldl')
+import BaseMap (getLands, operate)
+import NewMap
+import Data.Maybe
 import Algebra.Clipper
 import FindLocalities (localityColumnName, toClipperPolygon)
 import qualified Data.Text as T
+import qualified Data.Vector as V
 import Unicode
 import UpdatedMapper
 import qualified Data.Conduit.Combinators as CC
@@ -15,20 +20,10 @@ import Utils
 import Geometry.Shapefile.Conduit
 import Data.Text (Text)
 import Control.Monad.Trans.Class
-import ClassyPrelude (traceShowId, trace)
+import ClassyPrelude (traceShowId, trace, traceM)
 
 type Draw = Pdf.Draw
 
-matchState ∷ State → Shape → Bool
-matchState s = matchNumericDbfField (stateCode s) stateCodeColumnName
-
-mapLocally ∷ [Vector Point] → SettingsT Draw ()
-mapLocally = fillCoordinates broadArea
-
-mapHighlight ∷ [Vector Point] → SettingsT Draw ()
-mapHighlight = fillCoordinates narrowArea
-
-type PenGetter = Settings → Pen
 
 mapOutline ∷ Drawer → Sauce [Vector Point] → SettingsT IO (Draw ())
 mapOutline drawer source = liftT . drawer ⇇ source outlineSink
@@ -37,26 +32,32 @@ mapCircles ∷ PenGetter → Sauce [Vector Point] → SettingsT IO (Draw ())
 mapCircles pen source = do
    pen' ← asks pen
    bb ← asks boundingBox
-   liftT . drawCirclesX bb pen' ⇇ source outlineSink
+   s ← ask
+   points ← source outlineSink
+   liftT $ lift $ drawCirclesX s bb pen' points
 
-drawCirclesX ∷ RecBBox
+drawCirclesX ∷ Settings
+             → RecBBox
              → Pen 
              → [Vector Point] 
-             → SettingsT Pdf.Draw ()
-drawCirclesX bb p pp = drawCircles p (vlevify bb pp)
+             → Pdf.Draw ()
+drawCirclesX s bb p pp = drawCircles s p (vlevify bb pp)
 
-vlevify ∷ RecBBox → [Vector Point] → [Point]
-vlevify box a = smallPlaces
+vlevify ∷ RecBBox → [Vector Point] → (Point, RecBBox)
+vlevify box a = (smallPlaces, smallPlacesBBox)
    where
       area = polygonArea . toClipperPolygon
       eachArea = map 
          (\l → ((/mapArea). negate . area $ l, l)) 
          a
-      isSmallArea (a, _) = a ≥ 0 ∧ a < 0.75e-3
-      b'' = if all isSmallArea eachArea
+      isSmallArea (a, _) = a ≥ 0 ∧ a < 0.5e-3
+      circleables = if all isSmallArea eachArea
             then eachArea
             else []
-      smallPlaces = map (\(_, b) → centreOf b) b''
+      smallPlacesUnited ∷ Vector Point
+      smallPlacesUnited = foldl' (\bs (_, b) → bs `mappend` b) mempty circleables
+      smallPlaces = centreOf smallPlacesUnited
+      smallPlacesBBox = bboxFromPoints smallPlacesUnited
       mapArea = area . bboxToPolygon $ box
 
 centreOf ∷ Vector Point → Point
@@ -68,8 +69,8 @@ outlineSink = eachPolygon
               =$= CC.concat 
               =$= CC.sinkList
 
-mapState ∷ State → SettingsT IO (Draw ())
-mapState = mapOutline (fillCoordinates broadArea) . stateSource
+mapStates ∷ [State] → SettingsT IO (Draw ())
+mapStates = mapOutline (fillCoordinates subjectArea) . statesSource
 
 mapLocalities ∷ Drawer → SettingsT IO (Draw ())
 mapLocalities drawer = mapOutline drawer localitiesSource
@@ -77,31 +78,59 @@ mapLocalities drawer = mapOutline drawer localitiesSource
 mapRivers ∷ SettingsT IO (Draw ())
 mapRivers = mapOutline (outlineCoordinates riverPen) riverSource
 
-mapLakes ∷ SettingsT IO (Pdf.PDF XForm, Pdf.PDF XForm)
+mapLakes ∷ SettingsT IO (Pdf.PDF XForm)
 mapLakes = do
-   area ← xformify' ⇇ 
-      mapOutline (fillCoordinates water) lakeSource
-   outline ← xformify' ⇇ 
-      mapOutline (outlineCoordinates riverPen) lakeSource
-   return (area, outline)
-
+   lakes ← lakeSource outlineSink
+   waterPen ← asks water
+   river ← asks riverPen
+   settings ← ask
+   xformify' $ do
+      applySettings1 settings
+      fillPoints1 settings waterPen lakes
+      drawPoints1 settings river lakes
+      
 xformify' = liftT . xformify . lift
 
-mapLoc'y ∷ Drawer → Locality → SettingsT IO (Draw ())
-mapLoc'y drawer loc'y = 
-   mapOutline drawer (localitySource loc'y)
+stripSuffix s t = fromMaybe t (T.stripSuffix s t)
 
-mapLoki2 ∷ PenGetter → Locality → SettingsT IO (Draw ())
-mapLoki2 pen loc'y = 
-   mapCircles pen (localitySource loc'y)
+mapLoc'y ∷ [Locality] → SettingsT IO (Draw ())
+mapLoc'y loc'ies = do
+   bbox ← asks boundingBox
+   mainPen ← asks highlitArea
+   extraPen ← asks likeHighlitArea
+   localities ← localitySourceMany loc'ies outlineSink
+   let findSimilar loc'y = do
+         let basename = stripSuffix " CENTRAL" 
+                           (stripSuffix " CITY" loc'y)
+         localitySourceLike basename outlineSink
+
+   likeThem ← concat <$> mapM findSimilar loc'ies
+   settings ← ask
+   lift . return $ do
+      applySettings1 settings
+      fillPoints1 settings extraPen likeThem
+      fillPoints1 settings mainPen localities
+      drawCirclesX settings bbox mainPen localities
 
 mapMunis ∷ Drawer → SettingsT IO (Draw ())
-mapMunis drawer = mapOutline drawer municipalitiesSource
+mapMunis drawer = mapOutline drawer municipalitiesSource'
 
 mapMuni ∷ PenGetter 
         → Municipality 
         → SettingsT IO (Draw ())
-mapMuni mapper = mapOutline (fillCoordinates mapper) . municipalitySource'
+mapMuni mapper m = do
+   traceM (show $ mName m) 
+   mapOutline (fillCoordinates mapper) . municipalitySource' $ m
+
+mapMuniCropped ∷ PenGetter 
+        → Municipality 
+        → SettingsT IO (Draw ())
+mapMuniCropped mapper m = do
+   traceM (show $ mName m) 
+   p ← municipalitySource' m outlineSink
+   lands ← getLands 
+   let points = operate (∩) lands p
+   liftT $ fillCoordinates mapper points
 
 mapMuni2 ∷ PenGetter 
          → Municipality 
@@ -121,6 +150,13 @@ municipalitySource ∷ FilePaths → Municipality → Maybe RecBBox
 municipalitySource fps muni = 
    shapeSource (municipalityFilePathByMunicipality fps muni)
 
+municipalitySourceByState ∷ FilePaths 
+                          → State 
+                          → Sink Shape IO a 
+                          → IO a
+municipalitySourceByState fps state = 
+   shapeSource (municipalityFilePathByState state fps) Nothing
+
 source ∷ (FilePaths → FilePath) → Sauce [Vector Point]
 source yielder sink = do
    bbox ← asks boundingBox
@@ -133,82 +169,44 @@ riverSource = source rivers
 lakeSource ∷ Sauce [Vector Point]
 lakeSource = source lakes
 
-municipalitiesSource ∷ Sauce [Vector Point]
-municipalitiesSource = multiSources' municipalityFilePaths
+municipalitiesSource ∷ FilePaths → Sink Shape IO a → IO a
+municipalitiesSource fps = multiSources (municipalityFilePaths fps) Nothing
+
+municipalitiesSource' ∷ Sauce [Vector Point]
+municipalitiesSource' = multiSources' municipalityFilePaths
 
 localitiesSource ∷ Sauce [Vector Point]
 localitiesSource = multiSources' localityFilePaths
 
+orList ∷ [a → Bool] → a → Bool
+orList predicates a = foldl' (\b pred → (b ∨ pred a)) False predicates
+
+getLocalitiesByNames ∷ [Text] → Sink Shape IO a → RunSettingsT IO a
+getLocalitiesByNames localities sink = do
+   fps ← asks rsFilePaths
+   lift $ multiSources 
+      (localityFilePaths fps) 
+      Nothing 
+      (CC.filter (orList (map matchLocality localities)) =$= sink)
+
+localitySourceMany ∷ [Locality] → Sauce [Vector Point]
+localitySourceMany localities sink = 
+   localitiesSource (CC.filter (orList (map matchLocality localities)) =$= sink)
+
 localitySource ∷ Locality → Sauce [Vector Point]
 localitySource locality sink = 
    localitiesSource (CC.filter (matchLocality locality) =$= sink)
+
+localitySourceLike ∷ Locality → Sauce [Vector Point]
+localitySourceLike locality sink = 
+   localitiesSource (CC.filter (likeLocality locality) =$= sink)
 
 multiSources' ∷ (FilePaths → Yielder) → Sauce [Vector Point]
 multiSources' yielder sink = do
    bbox ← asks boundingBox
    fps ← asks filePaths
    lift $ multiSources (yielder fps) (Just bbox) sink
-   
 
-multiSources ∷ Yielder 
-             → Maybe RecBBox 
-             → Sink Shape IO [Vector Point] 
-             → IO [Vector Point]
-multiSources yielder bbox sink = do
-  yeld ← mapM go yielder
-  return $ concat yeld
-  where
-    go (filePath, filter') = 
-      shapeSource 
-         filePath 
-         bbox 
-         (CC.filter filter' =$= sink)
-
-municipalityFilePaths ∷ FilePaths → Yielder
-municipalityFilePaths fps = 
-   [(nswMunicipalities fps, allFilter),
-    (vicMunicipalities fps, allFilter),
-    (qldMunicipalities fps, allFilter),
-    (waMunicipalities fps, allFilter),
-    (saMunicipalities fps, allFilter),
-    (tasMunicipalities fps, allFilter),
-    (ntMunicipalities fps, allFilter),
-    (actMunicipalities fps, allFilter),
-    (otMunicipalities fps, allFilter)]
-
-
-localityFilePaths ∷ FilePaths → Yielder
-localityFilePaths fps = 
-   [(nswLocalities fps, allFilter),
-    (vicLocalities  fps, allFilter),
-    (qldLocalities  fps, allFilter),
-    (waLocalities fps, allFilter),
-    (saLocalities fps, localityFilter),
-    (tasLocalities  fps, allFilter),
-    (ntLocalities fps, allFilter),
-    (otLocalities fps, allFilter),
-    (actLocalities fps, districtFilter)]
-
-localityTypeColumn ∷ Text → Bool
-localityTypeColumn t 
-   = any (`T.isSuffixOf` t) ["_LOCA_5", "_LOCAL_5"]
-
-allFilter ∷ a → Bool
-allFilter = const True
-
-localityFilter ∷ Shape → Bool
-localityFilter = matchTextDbfField "G" localityTypeColumn
-
-districtFilter ∷ Shape → Bool
-districtFilter = matchTextDbfField "D" localityTypeColumn
-
-stateSource ∷ State → Sauce [Vector Point]
-stateSource state sink = do
-   bbox ← asks boundingBox
-   fps ← asks filePaths
-   lift $ shapeSource (states fps) (Just bbox) 
-      (CC.filter (matchState state) =$= sink)
-   
 type Drawer = [Vector Point] → SettingsT Draw ()
 
 fillCoordinates ∷ PenGetter → Drawer
@@ -219,6 +217,10 @@ fillCoordinates pen points = do
 outlineCoordinates ∷ PenGetter → Drawer
 outlineCoordinates penGetter points = do
   applySettings
+  outlineCoordinates2 penGetter points
+
+outlineCoordinates2 ∷ PenGetter → Drawer
+outlineCoordinates2 penGetter points = do
   pen ← asks penGetter
   mapM_ (drawPoints pen) points
 
@@ -228,26 +230,9 @@ outlineCoordinates penGetter points = do
 xformify ∷ SettingsT Draw () → SettingsT Pdf.PDF XForm
 xformify drawing = makeXForm1 ⇇ liftT drawing
 
-mapFineLines ∷ IO [Vector Point] → SettingsT IO (Pdf.PDF XForm)
-mapFineLines source = do
-   points ← lift source
-   drawing ← liftT $ outlineCoordinates narrowLines points
-   liftT $ makeXForm1 drawing
-
-stateCodeColumnName ∷ Text → Bool
-stateCodeColumnName = (== "STATE_CODE")
-
-stateCode ∷ State → Int
-stateCode ACT = 1
-stateCode OT = 2
-stateCode NSW = 3
-stateCode NT = 4
-stateCode Qld = 5
-stateCode SA = 6
-stateCode Tas = 7
-stateCode Vic = 8
-stateCode WA = 9
-
 matchLocality ∷ Locality → Shape → Bool
 matchLocality m = matchTextDbfField m localityColumnName
+
+likeLocality ∷ Locality → Shape → Bool
+likeLocality m = likeTextDbfField m localityColumnName
 

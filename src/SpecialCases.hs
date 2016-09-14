@@ -1,5 +1,5 @@
 {-# LANGUAGE PartialTypeSignatures #-}
-module SpecialCases (specialCases, SpecialCase(..), SpecialCaseMap)
+module SpecialCases (SpecialCaseMap, specialCases, SpecialCase(..))
 where
 
 import Types

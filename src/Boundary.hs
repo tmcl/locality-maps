@@ -12,6 +12,8 @@ type Shape = (C.ShapeHeader, ShpRec, DbfRow)
 shapeFieldByColumnNameRule ∷ (Text → Bool) → DbfRow → Maybe DbfField
 shapeFieldByColumnNameRule = C.shapeFieldByColumnNameRule
 
+likeTextDbfField ∷ Text → (Text → Bool) → Shape → Bool
+likeTextDbfField = C.likeTextDbfField
 matchTextDbfField ∷ Text → (Text → Bool) → Shape → Bool
 matchTextDbfField = C.matchTextDbfField
 matchNumericDbfField ∷ Int → (Text → Bool) → Shape → Bool

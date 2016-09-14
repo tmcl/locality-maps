@@ -1,4 +1,4 @@
-{-# LANGUAGE Rank2Types, BangPatterns #-}
+{-# LANGUAGE Rank2Types #-}
 
 module Main (main)
 where
@@ -7,6 +7,14 @@ import Control.Monad.Trans.Class
 import qualified Graphics.PDF as Pdf
 import EachMap
 
+{- todo yet.
+ -
+ - * state/territory location maps
+ - * canberra — D vs G??
+ - * cc, cx, ni
+ -}
+
+import Data.Csv (decodeByName)
 import qualified Data.Map as M
 import Data.Map (Map)
 import qualified Data.ByteString.Lazy as BS
@@ -22,6 +30,8 @@ import qualified Data.Conduit.List            as CL
 import           Data.Dbase.Conduit
 import           Data.Set                     (Set)
 import qualified Data.Set                     as S
+import qualified Data.Vector                  as V
+import           Data.Vector                  (Vector)
 import           Data.Text                    (Text)
 import qualified Data.Text                    as T
 import           Geometry.Shapefile.Conduit
@@ -29,8 +39,6 @@ import           System.Environment
 import           FindLocalities hiding (lgaColumnName)
 import Data.List
 import Utils 
---import System.Directory
---import Control.Monad
 
 import Types
 import Municipality
@@ -50,15 +58,38 @@ getSpecialCases = do
 main ∷ IO ()
 main = do
    special ← getSpecialCases
-   getArgs >>= Main.mapState special
+   getArgs >>= Main.mapThing special
 
-mapState ∷ SpecialCaseMap → [String] → IO ()
--- mapState ("cities":source:dest:_) = mapCities (withFiles source) dest
-mapState scm (state:source:dest:_) =
+mapThing' ∷ SpecialCaseMap → [(Mappable, String)] → FilePath → FilePath → IO ()
+mapThing' scm [(Named named, _)] source dest = 
    runRSettingsT 
-      (mapMunicipalitiesInState (read state) dest)
+      (mapBoundingBoxAsMappable (namedName named) (namedBBox named) dest) 
       (RunSettings (withFiles source) scm)
-mapState _ _ = error "I expect three arguments: a state/'cities', and source and dest folders"
+mapThing' scm [(Arbitrary bbox, _)] source dest = 
+   runRSettingsT 
+      (mapBoundingBoxAsMappable "custom" bbox dest) 
+      (RunSettings (withFiles source) scm)
+mapThing' scm [(Suburb suburb, _)] source dest = 
+   runRSettingsT 
+      (mapLocalityAsMappable suburb dest) 
+      (RunSettings (withFiles source) scm)
+mapThing' scm [(MappableMunicipalities m, _)] source dest = 
+   runRSettingsT 
+      (mapMunicipalitiesInMappable m dest) 
+      (RunSettings (withFiles source) scm)
+mapThing' scm [(City city, _)] source dest = 
+   runRSettingsT 
+      (mapMunicipalitiesInMappable city dest) 
+      (RunSettings (withFiles source) scm)
+mapThing' scm [(State state, _)] source dest = 
+   runRSettingsT 
+      (mapMunicipalitiesInMappable state dest) 
+      (RunSettings (withFiles source) scm)
+mapThing' _ b c d = error $ "Please give me a mappable thing and an in and an out" ⧺ show b ⧺ "/" ⧺ show c ⧺ ":" ⧺ show d
+
+mapThing ∷ SpecialCaseMap → [String] → IO ()
+mapThing scm (state:source:dest:_) = mapThing' scm (traceShowId $ reads $ traceShowId state) source dest
+mapThing _ _ = error "I wanted a mappable thing and an in and an out"
 
 municipalitiesByFilePath ∷ FilePath → State → IO (Set Municipality)
 municipalitiesByFilePath fp state = fmap S.fromList <$> runResourceT $ CB.sourceFile (toDbf fp)
@@ -117,14 +148,16 @@ localityTypeColumn t = "_LOCA_5" `T.isSuffixOf` t || "_LOCAL_5" `T.isSuffixOf` t
 -- muniFileName m = T.replace "/" "-" (mName m)
 
 settingsFromShapefileStream ∷ (Monad m) ⇒ Shape → RunSettingsT m Settings
-settingsFromShapefileStream (header, _, _) = 
-   settingsFromRecBBox . toRecBB . shpBB $ header
-
-settingsFromRecBBox ∷ (Monad m) ⇒ RecBBox → RunSettingsT m Settings
-settingsFromRecBBox bbox = do
+settingsFromShapefileStream (header, _, _) = do
    rs ← ask
-   return $ withDefaultSettings rs . embiggenBoundingBox $ bbox
+   return $ settingsFromRecBBox rs 0.1 . toRecBB . shpBB $ header
 
+settingsFromRecBBox ∷ RunSettings
+                    → Complex Double 
+                    → RecBBox 
+                    → Settings
+settingsFromRecBBox rs amount bbox =
+   withDefaultSettings rs . resizeBoundingBox amount $ bbox
 
 settingsFromState ∷ State → RunSettingsT IO (Maybe Settings)
 settingsFromState state = do
@@ -140,17 +173,63 @@ f <$$> v = maybe (return Nothing) f' v
    where
       f' v = f v ⇉ return . Just
 
-settingsFromMunicipality ∷ Municipality → RunSettingsT IO (Maybe Settings)
-settingsFromMunicipality municipality = do
+metros ∷ ByteString → [MetroArea]
+metros = decoded . decodeByName
+   where
+      decoded (Left a) = error a
+      decoded (Right (_, v)) = V.toList v
+
+metrosByCity ∷ City → ByteString → [MunicipalityShortName]
+metrosByCity city bs = map metroAreaMuni $ filter (\(MetroArea c _) → c ≡ city) (metros bs)
+
+getMetrosByCity ∷ City → IO [MunicipalityShortName]
+getMetrosByCity city = metrosByCity city <$> BS.readFile "metro.csv"
+
+anyMatch ∷ [a → Bool] → a → Bool
+anyMatch fs s = or (applyMap fs s)
+
+applyMap ∷ [a → b] → a → [b]
+applyMap fs v = map ($ v) fs
+
+bboxFromMunicipality ∷ Municipality → RunSettingsT IO (Maybe RecBBox)
+bboxFromMunicipality muni = do
    fps ← asks rsFilePaths
-   let bbox = municipalitySource fps municipality Nothing conduit
-   bbox' ← lift bbox
-   settingsFromRecBBox <$$> bbox'
-  where
+   let matchMunis = mName muni `matchTextDbfField` lgaColumnName
+       state = mState muni
+   lift $ municipalitySourceByState fps state (CC.filter matchMunis =$= shapesToRecBBox)
+
+bboxFromMunicipalities ∷ [Municipality] → RunSettingsT IO (Maybe RecBBox)
+bboxFromMunicipalities munis = do
+   bboxen ← mapM bboxFromMunicipality munis ∷ RunSettingsT IO [Maybe RecBBox]
+   liftT $ lift $ foldl' bigBoundingBox Nothing bboxen
+
+settingsFromMunicipalities ∷ [Municipality] → State → RunSettingsT IO (Maybe Settings)
+settingsFromMunicipalities munis state = do
+   bbox' ← bboxFromMunicipalities munis
+   rs ← ask
+   (return . settingsFromRecBBox rs 0.05) <$$> bbox'
+
+settingsFromCity ∷ City → RunSettingsT IO (Maybe Settings)
+settingsFromCity city = do
+   munis ← getMunicipalities city
+   settingsFromMunicipalities munis (cityToState city)
+
+settingsFromMunicipality ∷ RunSettings 
+                         → Municipality 
+                         → IO (Maybe Settings)
+settingsFromMunicipality rs municipality = do
+   let fps = rsFilePaths rs
+   bbox ← municipalitySource fps municipality Nothing conduit
+   return $ settingsFromRecBBox rs 0.1 <$> bbox
+   where
     conduit ∷ Sink Shape IO (Maybe RecBBox)
     conduit = CC.filter (matchMunicipality municipality)
       =$= CC.map shapeToBBox
       =$= CL.fold bigBoundingBox Nothing
+      
+
+shapesToRecBBox ∷ Sink Shape IO (Maybe RecBBox)
+shapesToRecBBox = CC.map shapeToBBox =$= CL.fold bigBoundingBox Nothing
 
 shapeToBBox ∷ Shape → Maybe RecBBox
 shapeToBBox (_, shp, _) = shpRecBBox shp
@@ -162,20 +241,20 @@ mapMunicipality mapper muni = do
    let drawing = writeTitle (muniLongName muni) >> m >> mCircle
    xformify' drawing
 
-mapLocality2 ∷ Municipality 
+mapLocality2 ∷ Text 
              → Locality 
              → SettingsT IO (Pdf.PDF XForm)
-mapLocality2 muni locality = do
-   let mln = show (muniLongName muni)
-   lift$putStrLn$(show locality)⧺" in "⧺mln
-   l ← mapLoc'y (fillCoordinates narrowArea) locality
-   ll ← mapLoki2 narrowLines locality
-   let title = T.concat [locality, " in ", muniLongName muni]
-       drawing = writeTitle title >> l >> ll
+mapLocality2 context locality = do
+   let mln = show context
+   lift $ putStrLn $ show locality ⧺ " in " ⧺ mln
+   l ← mapLoc'y [locality]
+   let title = T.concat [fixMc locality, " in ", context]
+       drawing = writeTitle title >> l
    xformify' drawing
    
-mapLocality ∷ Municipality → SettingsT IO [Pdf.PDF XForm]
-mapLocality m = do
+mapLocalitiesByMunicipality ∷ Municipality 
+                            → SettingsT IO [Pdf.PDF XForm]
+mapLocalitiesByMunicipality m = do
    fps ← asks filePaths
    manyLocalities ← lift $ 
       localitiesByMunicipality 
@@ -189,7 +268,7 @@ mapLocality m = do
                       (localitiesWithoutErrors $ S.toList manyLocalities) 
                       scs
    lift $ mapM_ print localities
-   mapM (mapLocality2 m) localities
+   mapM (mapLocality2 $ muniLongName m) localities
 
 localitiesWithoutErrors ∷ [Locality] → Map Text SpecialCase → [Locality]
 localitiesWithoutErrors locs maps = locs2 `without` errors2
@@ -203,9 +282,9 @@ a `without` b = filter (`S.notMember` b) a
 
 writeTitle ∷ Text → Pdf.Draw ()
 writeTitle text = Pdf.drawText $ do
-   let font = Pdf.PDFFont Pdf.Times_Roman 70 
+   let font = Pdf.PDFFont Pdf.Times_Roman 15 
    Pdf.setFont font
-   Pdf.textStart 100 100
+   Pdf.textStart 10 10
    Pdf.leading $ Pdf.getHeight font
    Pdf.renderMode Pdf.FillText
    Pdf.displayText (Pdf.toPDFString $ T.unpack text)
@@ -220,89 +299,180 @@ muzzle rect out = Pdf.runPdf
   (rectToPdfRect rect)
 
 mozzle ∷ [XForm] → Rect → Pdf.PDF ()
-mozzle (!drawings) rect = do 
+mozzle drawings rect = do 
+   traceM "."
    page ← Pdf.addPage (Just $ rectToPdfRect rect)
    Pdf.drawWithPage page $! mapM_ Pdf.drawXObject drawings
 
-mapMunicipalities ∷ PenGetter → SettingsT IO (Pdf.PDF XForm)
-mapMunicipalities pen = 
-   xformify' ⇇ mapMunis (outlineCoordinates pen)
+mapMunicipalities ∷ SettingsT IO (Pdf.PDF XForm)
+mapMunicipalities =
+   xformify' ⇇ mapMunis (outlineCoordinates municipalLines)
 
-mapMunicipalitiesInState1 ∷ State → [Municipality] → SettingsT IO (Pdf.PDF ())
-mapMunicipalitiesInState1 state munis = do
+mapMunicipalitiesInState1 ∷ [State] → [Municipality] → SettingsT IO (Pdf.PDF ())
+mapMunicipalitiesInState1 states munis = do
   lift $ mapM_ (print . muniLongName) munis
-  coastPoints ← mapCoast
+  coastPoints ← mapCoast Nothing 
   riverPoints ← xformify' ⇇ mapRivers
   urbanPoints ← mapUrbanAreas 
-  statePoints ← xformify' ⇇ EachMap.mapState state
-  munisPoints ← mapMunicipalities narrowLines
+  statePoints ← xformify' ⇇ mapStates states
+  munisPoints ← mapMunicipalities 
   traceM $ show munis
   let points = [coastPoints, 
                 statePoints, 
                 urbanPoints, 
                 riverPoints, 
                 munisPoints]
-  muniPoints ← mapM (mapMunicipality narrowArea) munis
-  liftT $ runMagic (sequence points) muniPoints
+  muniPoints ← mapM (mapMunicipality highlitArea) munis
+  liftT $ combineXFormsIntoPages (sequence points) muniPoints
   
-mapMunicipalitiesLocally1 ∷ FilePath
-                          → [Municipality] 
-                          → RunSettingsT IO ()
-mapMunicipalitiesLocally1 out munis = do 
-  traceM $ show munis
-  mapM_ (mapMunicipalityLocally1 out) munis
+mapMunicipalityLocally ∷ Settings
+                       → FilePath
+                       → String
+                       → Municipality
+                       → RunSettingsT IO ()
+mapMunicipalityLocally s out context muni = do
+  pdf2 ← lift $ runReaderT (mapMunicipalityLocally2 muni) s
+  let name = T.unpack $ muniLongName muni
+      fn2 = out ⧺ "/" ⧺ name ⧺ " and " ⧺ context
+  lift $ muzzle (settingsRect s) fn2 $! pdf2
 
-mapMunicipalityLocally1 ∷ FilePath 
-                        → Municipality 
-                        → RunSettingsT IO ()
-mapMunicipalityLocally1 out muni = do
-  Just settings ← settingsFromMunicipality muni
-  pdf2 ← lift $ runReaderT (mapMunicipalityLocally2 muni) settings
-  let state = show $ mState muni
-      name = T.unpack $ muniLongName muni
-      fn2 = out ⧺ "/" ⧺ name ⧺ " and " ⧺ state ⧺ ".pdf"
-  lift $ muzzle (settingsRect settings) fn2 $! pdf2
+mapMunicipalityBackground ∷ Municipality 
+                         → SettingsT IO [Pdf.PDF XForm]
+mapMunicipalityBackground muni =
+  sequence [mapCoast (Just $ mState muni),
+            xformify' ⇇ mapMuniCropped subjectArea muni, 
+            mapUrbanAreas, 
+            mapReserves,
+            xformify' ⇇ mapRivers, 
+            mapLakes, 
+            xformify' ⇇ mapMuni subjectAreaHighlight muni,
+            mapMunicipalities, 
+            xformify' ⇇ mapLocalities (outlineCoordinates localityLines)]
 
 mapMunicipalityLocally2 ∷ Municipality → SettingsT IO (Pdf.PDF ())
 mapMunicipalityLocally2 muni = do
-  coastPoints ← mapCoast
-  riverPoints ← xformify' ⇇ mapRivers
-  (lakePoints1, lakePoints2) ← mapLakes
-  urbanPoints ← mapUrbanAreas 
-  broadBorders ← mapMunicipalities broadLines
-  broadPoints ← xformify' ⇇ mapMuni broadArea muni
-  narrowBorders ← xformify' ⇇ mapLocalities (outlineCoordinates narrowLines)
-  let points = [coastPoints, 
-                broadPoints, 
-                riverPoints, 
-                lakePoints1, 
-                lakePoints2, 
-                broadBorders, 
-                narrowBorders,
-                urbanPoints]
-  muniPoints ← mapLocality muni
-  liftT $ runMagic (sequence points) muniPoints
-  
+  bg ← mapMunicipalityBackground muni
+  fg ← mapLocalitiesByMunicipality muni
+  liftT $ combineXFormsIntoPages (sequence bg) fg
 
-mapMunicipalitiesInState ∷ State → FilePath → RunSettingsT IO ()
-mapMunicipalitiesInState state out = do
-  let fn1 = out ⧺ "/" ⧺ show state ⧺ "1.pdf"
-  Just settings ← settingsFromState state
-  fps ← asks rsFilePaths
-  munis ← lift $ S.toList 
-    <$> municipalitiesByFilePath (municipalityFilePathByState state fps) state
-  lift $ muzzle (settingsRect settings) fn1 
-    ⇇ strictly (runReaderT (mapMunicipalitiesInState1 state munis) settings)
-  strictly $ mapMunicipalitiesLocally1 out munis
+class Show a ⇒ IMappable a where
+   getStates ∷ a → [State]
+   getMunicipalities ∷ a → RunSettingsT IO [Municipality]
+   getSettings ∷ a → RunSettingsT IO (Maybe Settings)
+   getSettingsByMunicipality ∷ a 
+                             → Settings  -- contextual settings
+                             → RunSettings
+                             → Municipality -- that we're mapping
+                             → IO (Maybe Settings)
 
-strictly ∷ a → a
-strictly a = seq a a
+instance IMappable Municipalities where
+   getStates (Municipalities m mm) = map mState (m:mm)
+   getMunicipalities (Municipalities m mm) = return (m:mm)
+   getSettings (Municipalities m mm) = settingsFromMunicipalities (m:mm) (mState m)
+   getSettingsByMunicipality _ settings _ _ = return $ return settings
 
-runMagic ∷ Pdf.PDF [XForm] → [Pdf.PDF XForm] → SettingsT Pdf.PDF ()
-runMagic maps pages = do
+instance IMappable City where
+   getStates s = [cityToState s]
+   getMunicipalities = municipalitiesByCity
+   getSettings = settingsFromCity
+   getSettingsByMunicipality _ settings _ _ = return $ return settings
+
+instance IMappable State where
+   getStates s = [s]
+   getMunicipalities = municipalitiesByState
+   getSettings = settingsFromState
+   getSettingsByMunicipality _ _ = settingsFromMunicipality 
+
+municipalitiesByCity ∷ City → RunSettingsT IO [Municipality]
+municipalitiesByCity city = do
+  let state = cityToState city
+  munis ← lift $ getMetrosByCity city
+  munisByState ← municipalitiesByState state
+  let munis2 = filterMunis munis state munisByState 
+      muniNames = map mName munisByState
+      allMatch = all ((∈ muniNames) `orF` T.isPrefixOf "??")
+      munis3 = if allMatch munis 
+               then munis2 
+               else error $ show muniNames ⧺ " vs " ⧺ show munis
+  return munis3
+
+mapMunicipalitiesInMappable ∷ IMappable a 
+                            ⇒ a
+                            → FilePath 
+                            → RunSettingsT IO ()
+mapMunicipalitiesInMappable it out = do
+   let fn = out ⧺ "/" ⧺ show it
+   rs ← ask
+   munis' ← getMunicipalities it
+   --- let munis = filter (\l → mName l ≡ "BRIGHTON" ) munis'
+   let munis = munis'
+   Just settings ← getSettings it
+   let mapLocally muni = do
+          Just s ← lift $ getSettingsByMunicipality it settings rs muni
+          mapMunicipalityLocally s out (show it) muni
+   lift $ muzzle (settingsRect settings) fn
+      ⇇ runReaderT (mapMunicipalitiesInState1 (getStates it) munis) settings
+   mapM_ mapLocally munis
+
+bboxFromPolygons ∷ [Vector Point] → Maybe RecBBox
+bboxFromPolygons = foldl' addToBoundingBox Nothing
+
+addToBoundingBox ∷ Maybe RecBBox → Vector Point → Maybe RecBBox
+addToBoundingBox box p = bigBoundingBox box (Just $ bboxFromPoints p)
+
+bboxSink ∷ Consumer Shape IO (Maybe RecBBox)
+bboxSink = CL.fold (\b (_, a, _) → bigBoundingBox b (shpRecBBox a)) Nothing
+
+mapBoundingBoxAsMappable ∷ Text → RecBBox → FilePath → RunSettingsT IO ()
+mapBoundingBoxAsMappable label bbox out = do
+   rs ← ask
+   fps ← asks rsFilePaths
+   let municipality = Municipality Vic "MOUNT ISA CITY" "MOUNT ISA"
+       fn = out ⧺ "/" ⧺ show label ⧺ " - " ⧺ show bbox
+       settings = settingsFromRecBBox rs 0.1 bbox
+       mapLocally = do
+         background ← mapMunicipalityBackground municipality
+         localities ← lift $ localitiesByBoundingBox bbox (localityFilePaths fps)
+         fg ← mapM (mapLocality2 label) (S.toList localities)
+         liftT $ combineXFormsIntoPages (sequence background) fg
+   pdf2 ← lift $ runReaderT mapLocally settings
+   lift $ muzzle (settingsRect settings) fn pdf2
+
+
+mapLocalityAsMappable ∷ [Text] → FilePath → RunSettingsT IO ()
+mapLocalityAsMappable them out = do
+   let fn = out ⧺ "/" ⧺ show them
+   rs ← ask
+   bbox ← getLocalitiesByNames them bboxSink
+   lift $ print bbox
+   let municipality = Municipality Vic "MOUNT ISA CITY" "MOUNT ISA"
+       Just s = settingsFromRecBBox rs 0.1 <$> bbox
+       squizzle = do
+         background ← mapMunicipalityBackground municipality
+         fg ← mapM (mapLocality2 "custom") them
+         liftT $ combineXFormsIntoPages (sequence background) fg
+   pdf2 ← lift $ runReaderT squizzle s
+   lift $ muzzle (settingsRect s) fn pdf2
+
+orF ∷ (a → Bool) → (a → Bool) → a → Bool
+orF p q a = p a ∨ q a
+
+municipalityFilePathByCity = municipalityFilePathByState . cityToState
+
+filterMunis ∷ [MunicipalityShortName] → State → [Municipality] → [Municipality]
+filterMunis toKeep state = filter (\s → mState s ≡ state ∧ mName s ∈ toKeep)
+
+municipalitiesByState ∷ State → RunSettingsT IO [Municipality]
+municipalitiesByState state = do
+   fps ← asks rsFilePaths
+   lift $ S.toList <$> municipalitiesByFilePath (municipalityFilePathByState state fps) state
+   
+combineXFormsIntoPages ∷ Pdf.PDF [XForm] → [Pdf.PDF XForm] → SettingsT Pdf.PDF ()
+combineXFormsIntoPages maps pages = do
    maps' ← lift maps
    pages' ← lift $ sequence pages
    rect ← asks settingsRect
+   lift $ mozzle maps' rect
    lift $ mapM_ (\pageMap → mozzle (maps' ⧺ [pageMap]) rect) pages'
 
 --todo hm. convert to conduit?

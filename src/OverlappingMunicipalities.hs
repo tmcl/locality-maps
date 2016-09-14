@@ -1,4 +1,4 @@
-module Main where
+module Main(main) where
 
 import Algebra.Clipper
 import Geometry.Shapefile.Conduit
@@ -24,7 +24,7 @@ run (municipality:municipalities:localities:_) = do
 run _ = error "expected three args: municipality/muni source/locality source"
 
 testCdt2 :: Maybe RecBBox -> Polygons -> Source IO ByteString -> Source IO ByteString -> IO ()
-testCdt2 bbox polygons shpH dbfH = cdt (const True) bbox polygons shpH dbfH $$ CC.sinkNull
+testCdt2 bbox polygons shpH dbfH = shpDbfToPolygonsInPolygonsConduit (const True) bbox polygons shpH dbfH $$ CC.sinkNull
 
 -- testCdt :: Maybe RecBBox -> Polygon -> Source IO ByteString -> Source IO ByteString -> IO ()
 -- testCdt bbox polygon shpH dbfH =  

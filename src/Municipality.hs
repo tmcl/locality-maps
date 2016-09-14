@@ -1,4 +1,4 @@
-module Municipality()
+module Municipality(muniLongName, fixMc)
 where
 
 import Prelude hiding (concat)
@@ -8,7 +8,7 @@ import Types
 
 -- todo this should be based on a database
 muniLongName :: Municipality -> Text
-muniLongName m = fixThe . fixMc . toTitle . transform . mCouncilName $ m
+muniLongName m = fixMc . toTitle . transform . mCouncilName $ m
    where
       transform = case mState m of
          Vic -> remove " (UNINCORPORATED)" . remove " (UNINC)"
@@ -16,7 +16,10 @@ muniLongName m = fixThe . fixMc . toTitle . transform . mCouncilName $ m
          Tas -> removeCouncil
          Qld -> replaceRegional
          SA → saMap
+         WA → waMap
          NT → replace "Un-Incorporated" "Unincorporated"
+         ACTg → id
+         ACTd → id
          _ -> error (show m)
 
 specialNSW ∷ Text → Text
@@ -45,6 +48,18 @@ districtFrom prefix t = concat [remove prefix t, " District"]
 cityFrom ∷ Text → Text → Text
 cityFrom prefix t = concat [remove prefix t, " City"]
 
+shireFrom ∷ Text → Text → Text
+shireFrom prefix t = concat [remove prefix t, " Shire"]
+
+townFrom ∷ Text → Text → Text
+townFrom prefix t = concat [remove prefix t, " Town"]
+
+waMap ∷ Text → Text
+waMap t
+  | "CITY OF" `isPrefixOf` t = cityFrom "CITY OF " t
+  | "SHIRE OF" `isPrefixOf` t = shireFrom "SHIRE OF " t
+  | "TOWN OF" `isPrefixOf` t = townFrom "TOWN OF " t
+  | otherwise = error $ show t
 
 saMap ∷ Text → Text
 saMap t
@@ -105,4 +120,8 @@ replaceMunicipal :: Text -> Text
 replaceMunicipal = replace " MUNICIPAL" " MUNICIPALITY"
 
 fixMc ∷ Text → Text
-fixMc = replace "Mckinlay" "McKinlay"
+fixMc name = fixName stripped
+   where
+      stripped = stripPrefix "MC" name
+      fixName (Just x) = "Mc" `mappend` x
+      fixName Nothing = name

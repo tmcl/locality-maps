@@ -1,4 +1,4 @@
-module PolygonReduce (reduce, itWorks)
+module PolygonReduce (reduce)
 where
 
 import Point
